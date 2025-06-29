@@ -13,8 +13,7 @@ dependencies = [
     "base58>=2.1.1",
     "cryptography>=45.0.4",
     "solders>=0.26.0",
-    "python-telegram-bot>=20.0",
-    "telegram>=0.0.1",
+    "python-telegram-bot>=20.0"
 ]
 
 [tool.poetry]
