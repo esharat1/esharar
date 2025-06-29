@@ -2,7 +2,9 @@
 name = "python-template"
 version = "0.1.0"
 description = ""
-authors = ["Your Name <you@example.com>"]
+authors = [
+  { name = "Your Name", email = "you@example.com" }
+]
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.12.13",
