@@ -58,7 +58,7 @@ MAX_MONITORED_WALLETS = 100000
 MIN_NOTIFICATION_AMOUNT = 0.001  # SOL - can be adjusted as needed
 
 # Channel and Admin Configuration
-MONITORING_CHANNEL = "@esharat23"  # القناة التي ستستقبل إشعارات المراقبة
+MONITORING_CHANNEL = os.getenv("ID_CHAT")  # القناة التي ستستقبل إشعارات المراقبة (ID فقط)
 ADMIN_CHAT_ID = 5053683608  # معرف المشرف الذي سيحصل على الإشعارات أيضاً
 
 # Arabic Messages
