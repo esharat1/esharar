@@ -633,11 +633,33 @@ class SolanaMonitor:
                         await asyncio.sleep(POLLING_INTERVAL)
                         continue
 
-                    # Monitor wallets in rotating batches to respect rate limits
-                    batch_size = min(10, MAX_RPC_CALLS_PER_SECOND // 2)  # Conservative batch size
+                    # فحص 30 محفظة فقط كل دورة مراقبة لتقليل الضغط على RPC
+                    max_wallets_per_cycle = 20
+                    
+                    # اختيار 30 محفظة بالتناوب من إجمالي المحافظ
+                    if len(all_wallets) > max_wallets_per_cycle:
+                        # استخدام index دوراني لاختيار محافظ مختلفة في كل دورة
+                        start_index = self.wallet_rotation_index % len(all_wallets)
+                        
+                        # اختيار 30 محفظة بدءاً من start_index
+                        selected_wallets = []
+                        for i in range(max_wallets_per_cycle):
+                            wallet_index = (start_index + i) % len(all_wallets)
+                            selected_wallets.append(all_wallets[wallet_index])
+                        
+                        # تحديث المؤشر للدورة القادمة
+                        self.wallet_rotation_index = (self.wallet_rotation_index + max_wallets_per_cycle) % len(all_wallets)
+                        
+                        logger.info(f"🔄 فحص {len(selected_wallets)} محفظة من إجمالي {len(all_wallets)} (بدء من المؤشر {start_index})")
+                    else:
+                        selected_wallets = all_wallets
+                        logger.info(f"🔍 فحص جميع المحافظ ({len(all_wallets)} محفظة)")
 
-                    for i in range(0, len(all_wallets), batch_size):
-                        batch = all_wallets[i:i + batch_size]
+                    # معالجة المحافظ المختارة في دفعات صغيرة
+                    batch_size = 5  # تقليل حجم الدفعة لتقليل الضغط أكثر
+
+                    for i in range(0, len(selected_wallets), batch_size):
+                        batch = selected_wallets[i:i + batch_size]
                         tasks = []
 
                         for wallet_info in batch:
@@ -646,11 +668,11 @@ class SolanaMonitor:
                             )
                             tasks.append(task)
 
-                        # Wait for batch to complete
+                        # انتظار اكتمال الدفعة
                         await asyncio.gather(*tasks, return_exceptions=True)
 
-                        # Small delay between batches
-                        await asyncio.sleep(1)
+                        # فترة انتظار أطول بين الدفعات لتقليل الضغط
+                        await asyncio.sleep(2)
 
                     # Wait for next polling interval
                     await asyncio.sleep(POLLING_INTERVAL)
