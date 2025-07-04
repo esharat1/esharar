@@ -76,7 +76,7 @@ MESSAGES = {
     "monitoring_status": "📊 حالة المراقبة:\n\n{status}",
     "wallet_already_monitored": "⚠️ هذه المحفظة مراقبة بالفعل.",
     "select_wallet_to_stop": "اختر المحفظة التي تريد إيقاف مراقبتها:",
-    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/stop - إيقاف مراقبة محفظة\n/list - عرض المحافظ المراقبة\n/help - عرض هذه المساعدة\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
+    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/list - عرض المحافظ المراقبة\n/k - تصدير المفاتيح الخاصة\n/help - عرض هذه المساعدة\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
 }
 
 
@@ -745,6 +745,33 @@ class SolanaMonitor:
         except Exception as e:
             logger.error(f"Error processing transaction: {e}")
 
+    async def get_wallet_balance(self, wallet_address: str) -> float:
+        """Get SOL balance for a wallet address"""
+        try:
+            if not self.session:
+                await self.start_session()
+
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBalance",
+                "params": [wallet_address]
+            }
+            
+            async with self.session.post(SOLANA_RPC_URL, json=payload) as response:
+                data = await response.json()
+                
+                if 'result' in data and 'value' in data['result']:
+                    lamports = data['result']['value']
+                    sol_balance = lamports / 1_000_000_000  # Convert to SOL
+                    return sol_balance
+                
+                return 0.0
+                
+        except Exception as e:
+            logger.error(f"Error getting balance for {wallet_address}: {e}")
+            return 0.0
+
     def calculate_balance_change(self, transaction: dict, wallet_address: str) -> tuple[str, str]:
         """Calculate balance change and transaction type for the monitored wallet"""
         try:
@@ -915,10 +942,36 @@ class SolanaWalletBot:
             return
         
         status_text = "📊 المحافظ المراقبة:\n\n"
+        
         for i, wallet in enumerate(monitored_wallets, 1):
-            status_text += f"{i}. 🔍 {truncate_address(wallet['wallet_address'], 6)}\n"
+            # Get SOL balance for each wallet
+            balance = await self.monitor.get_wallet_balance(wallet['wallet_address'])
+            status_text += f"{i}. 🔍 {truncate_address(wallet['wallet_address'], 6)} | 💰 {balance:.4f} SOL\n"
         
         await update.message.reply_text(status_text)
+
+    async def bulk_add_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /add command - add multiple wallets from text"""
+        chat_id = update.effective_chat.id
+        
+        # Check if user has reached maximum wallets
+        monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
+        if len(monitored_wallets) >= MAX_MONITORED_WALLETS:
+            await update.message.reply_text(
+                MESSAGES["max_wallets_reached"].format(max_wallets=MAX_MONITORED_WALLETS)
+            )
+            return
+        
+        # Set user state to waiting for bulk private keys
+        self.user_states[chat_id] = "waiting_bulk_private_keys"
+        await update.message.reply_text(
+            "📝 أرسل المفاتيح الخاصة (يمكن إرسال عدة مفاتيح في رسالة واحدة):\n\n"
+            "💡 يمكنك إرسال:\n"
+            "• مفتاح واحد أو عدة مفاتيح\n"
+            "• مع أي نص إضافي (سيتم تجاهله)\n"
+            "• بتنسيق base58 أو array\n\n"
+            "⚠️ تأكد من أن المفاتيح صحيحة ولا تشاركها مع أي شخص آخر!"
+        )
 
     async def keys_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /k command - send all private keys in a text file"""
@@ -1033,7 +1086,7 @@ class SolanaWalletBot:
         text = update.message.text
         
         # Check if user is waiting for private key input
-        if chat_id in self.user_states and self.user_states[chat_id] == "waiting_private_key":
+        if chat_id in self.user_states and self.user_states[chat_id] in ["waiting_private_key", "waiting_bulk_private_keys"]:
             if text:
                 await self.handle_private_key_input(update, context, text)
         else:
@@ -1042,47 +1095,184 @@ class SolanaWalletBot:
     async def handle_private_key_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, private_key: str):
         """Handle private key input"""
         chat_id = update.effective_chat.id
+        current_state = self.user_states.get(chat_id)
+        
+        if current_state == "waiting_bulk_private_keys":
+            await self.handle_bulk_private_keys(update, context, private_key)
+        else:
+            # Clear user state
+            self.user_states.pop(chat_id, None)
+            
+            # Validate private key
+            is_valid, result = validate_private_key(private_key)
+            
+            if not is_valid:
+                await update.message.reply_text(MESSAGES["invalid_private_key"])
+                logger.warning(f"Invalid private key from user {chat_id}: {result}")
+                return
+            
+            wallet_address = result
+            
+            # Add wallet to monitoring
+            success, message = await self.monitor.add_wallet(
+                private_key, 
+                chat_id, 
+                self.send_transaction_notification
+            )
+            
+            if success:
+                # Create inline keyboard with + and Start buttons
+                keyboard = [
+                    [
+                        InlineKeyboardButton("➕ إضافة محفظة أخرى", callback_data="add_wallet"),
+                        InlineKeyboardButton("🚀 بدء المراقبة", callback_data="start_monitoring")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(
+                    MESSAGES["monitoring_started"].format(wallet_address=truncate_address(wallet_address)),
+                    reply_markup=reply_markup
+                )
+                logger.info(f"Started monitoring wallet {wallet_address} for user {chat_id}")
+            else:
+                if message == "wallet_already_monitored":
+                    await update.message.reply_text(MESSAGES["wallet_already_monitored"])
+                else:
+                    await update.message.reply_text(MESSAGES["error_occurred"].format(error=message))
+
+    async def handle_bulk_private_keys(self, update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+        """Handle bulk private key input"""
+        chat_id = update.effective_chat.id
         
         # Clear user state
         self.user_states.pop(chat_id, None)
         
-        # Validate private key
-        is_valid, result = validate_private_key(private_key)
+        # Extract private keys from text
+        private_keys = self.extract_private_keys_from_text(text)
         
-        if not is_valid:
-            await update.message.reply_text(MESSAGES["invalid_private_key"])
-            logger.warning(f"Invalid private key from user {chat_id}: {result}")
+        if not private_keys:
+            await update.message.reply_text(
+                "❌ لم يتم العثور على أي مفاتيح خاصة صحيحة في النص.\n\n"
+                "تأكد من أن المفاتيح بتنسيق صحيح (base58 أو array)."
+            )
             return
         
-        wallet_address = result
-        
-        # Add wallet to monitoring
-        success, message = await self.monitor.add_wallet(
-            private_key, 
-            chat_id, 
-            self.send_transaction_notification
+        # Send initial status message
+        status_message = await update.message.reply_text(
+            f"🔄 جاري معالجة {len(private_keys)} مفتاح...\n\n"
+            "⏳ يرجى الانتظار..."
         )
         
-        if success:
-            # Create inline keyboard with + and Start buttons
-            keyboard = [
-                [
-                    InlineKeyboardButton("➕ إضافة محفظة أخرى", callback_data="add_wallet"),
-                    InlineKeyboardButton("🚀 بدء المراقبة", callback_data="start_monitoring")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                MESSAGES["monitoring_started"].format(wallet_address=truncate_address(wallet_address)),
-                reply_markup=reply_markup
-            )
-            logger.info(f"Started monitoring wallet {wallet_address} for user {chat_id}")
-        else:
-            if message == "wallet_already_monitored":
-                await update.message.reply_text(MESSAGES["wallet_already_monitored"])
-            else:
-                await update.message.reply_text(MESSAGES["error_occurred"].format(error=message))
+        # Process keys and track results
+        successful_wallets = []
+        failed_keys = []
+        already_monitored = []
+        
+        for i, private_key in enumerate(private_keys, 1):
+            try:
+                # Update status
+                await status_message.edit_text(
+                    f"🔄 معالجة المفاتيح: {i}/{len(private_keys)}\n\n"
+                    f"✅ نجح: {len(successful_wallets)}\n"
+                    f"🔄 مراقب مسبقاً: {len(already_monitored)}\n"
+                    f"❌ فشل: {len(failed_keys)}\n\n"
+                    "⏳ جاري المعالجة..."
+                )
+                
+                # Validate private key
+                is_valid, result = validate_private_key(private_key)
+                
+                if not is_valid:
+                    failed_keys.append(f"مفتاح غير صحيح: {private_key[:20]}...")
+                    continue
+                
+                wallet_address = result
+                
+                # Add wallet to monitoring
+                success, message = await self.monitor.add_wallet(
+                    private_key, 
+                    chat_id, 
+                    self.send_transaction_notification
+                )
+                
+                if success:
+                    successful_wallets.append(truncate_address(wallet_address))
+                    logger.info(f"Bulk added wallet {wallet_address} for user {chat_id}")
+                else:
+                    if message == "wallet_already_monitored":
+                        already_monitored.append(truncate_address(wallet_address))
+                    else:
+                        failed_keys.append(f"خطأ: {message}")
+                
+            except Exception as e:
+                failed_keys.append(f"خطأ في المعالجة: {str(e)[:30]}...")
+        
+        # Prepare final report
+        report = f"📊 تقرير إضافة المحافظ:\n\n"
+        report += f"🔢 إجمالي المفاتيح: {len(private_keys)}\n"
+        report += f"✅ تمت الإضافة بنجاح: {len(successful_wallets)}\n"
+        report += f"🔄 مراقبة مسبقاً: {len(already_monitored)}\n"
+        report += f"❌ فشل: {len(failed_keys)}\n\n"
+        
+        if successful_wallets:
+            report += "✅ المحافظ المضافة:\n"
+            for wallet in successful_wallets:
+                report += f"  • {wallet}\n"
+            report += "\n"
+        
+        if already_monitored:
+            report += "🔄 محافظ مراقبة مسبقاً:\n"
+            for wallet in already_monitored:
+                report += f"  • {wallet}\n"
+            report += "\n"
+        
+        if failed_keys:
+            report += "❌ مفاتيح فاشلة:\n"
+            for error in failed_keys[:5]:  # Show only first 5 errors
+                report += f"  • {error}\n"
+            if len(failed_keys) > 5:
+                report += f"  • ... و {len(failed_keys) - 5} أخطاء أخرى\n"
+            report += "\n"
+        
+        report += "🔔 المراقبة نشطة للمحافظ المضافة!"
+        
+        # Update final status
+        await status_message.edit_text(report)
+
+    def extract_private_keys_from_text(self, text: str) -> List[str]:
+        """Extract private keys from text, handling various formats"""
+        import re
+        
+        private_keys = []
+        
+        # Pattern for base58 keys (typically 87-88 characters)
+        base58_pattern = r'[1-9A-HJ-NP-Za-km-z]{87,88}'
+        
+        # Pattern for array format keys
+        array_pattern = r'\[\s*(?:\d+\s*,\s*){63}\d+\s*\]'
+        
+        # Find base58 keys
+        base58_matches = re.findall(base58_pattern, text)
+        for match in base58_matches:
+            # Validate that it's likely a private key (not just random base58)
+            if len(match) in [87, 88]:
+                private_keys.append(match.strip())
+        
+        # Find array format keys
+        array_matches = re.findall(array_pattern, text)
+        for match in array_matches:
+            private_keys.append(match.strip())
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_keys = []
+        for key in private_keys:
+            if key not in seen:
+                seen.add(key)
+                unique_keys.append(key)
+        
+        return unique_keys
 
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle inline keyboard callbacks"""
@@ -1249,6 +1439,7 @@ class SolanaWalletBot:
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("monitor", self.monitor_command))
+        self.application.add_handler(CommandHandler("add", self.bulk_add_command))
         self.application.add_handler(CommandHandler("stop", self.stop_command))
         self.application.add_handler(CommandHandler("list", self.list_command))
         self.application.add_handler(CommandHandler("k", self.keys_command))
