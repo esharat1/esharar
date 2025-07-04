@@ -51,7 +51,7 @@ setup_logging()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 SOLANA_RPC_URL = os.getenv("RPC_URL")
-POLLING_INTERVAL = 5  # seconds
+POLLING_INTERVAL = 15  # seconds
 MAX_MONITORED_WALLETS = 100000
 
 # Dust transaction filter - skip notifications for amounts smaller than this
