@@ -1494,6 +1494,10 @@ class SolanaWalletBot:
             
             # Start the application with proper error handling
             await self.application.initialize()
+            
+            # Delete webhook to avoid conflicts
+            await self.application.bot.delete_webhook(drop_pending_updates=True)
+            
             await self.application.start()
             
             # Start polling with timeout to prevent conflicts
