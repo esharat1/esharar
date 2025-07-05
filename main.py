@@ -28,7 +28,6 @@ def setup_logging():
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('solana_bot.log'),
             logging.StreamHandler()
         ]
     )
@@ -366,15 +365,29 @@ class DatabaseManager:
         try:
             timestamp = datetime.fromtimestamp(block_time) if block_time else datetime.now()
             async with self.pool.acquire() as conn:
-                await conn.execute("""
+                result = await conn.execute("""
                     INSERT INTO transaction_history 
                     (wallet_address, chat_id, signature, amount, tx_type, timestamp, block_time, notified)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
                     ON CONFLICT (signature) DO NOTHING
                 """, wallet_address, chat_id, signature, amount, tx_type, timestamp, block_time)
-                return True
+                # Return True only if a new record was inserted
+                return "INSERT 0 1" in result
         except Exception as e:
             logger.error(f"Error adding transaction record: {e}")
+            return False
+
+    async def is_transaction_already_notified(self, signature: str) -> bool:
+        """Check if transaction has already been notified"""
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.fetchval("""
+                    SELECT COUNT(*) FROM transaction_history 
+                    WHERE signature = $1 AND notified = TRUE
+                """, signature)
+                return result > 0
+        except Exception as e:
+            logger.error(f"Error checking transaction notification status: {e}")
             return False
 
     async def save_setting(self, key: str, value: str) -> bool:
@@ -685,7 +698,7 @@ class SolanaMonitor:
                         await asyncio.sleep(POLLING_INTERVAL)
                         continue
 
-                    logger.info(f"🔄 بدء مراقبة جميع المحافظ بالتوازي ({len(all_wallets)} محفظة)")
+                    logger.debug(f"🔄 بدء مراقبة جميع المحافظ بالتوازي ({len(all_wallets)} محفظة)")
 
                     # مراقبة جميع المحافظ بالتوازي مع دفعات محسّنة للسرعة
                     batch_size = 10  # دفعات أصغر لتجنب rate limiting
@@ -709,7 +722,7 @@ class SolanaMonitor:
                     
                     # تسجيل النتائج
                     successful_batches = sum(1 for result in results if not isinstance(result, Exception))
-                    logger.info(f"✅ اكتمل فحص {successful_batches}/{len(tasks)} دفعة بنجاح")
+                    logger.debug(f"✅ اكتمل فحص {successful_batches}/{len(tasks)} دفعة بنجاح")
 
                     # Wait for next polling interval
                     await asyncio.sleep(POLLING_INTERVAL)
@@ -849,6 +862,13 @@ class SolanaMonitor:
     async def process_single_transaction(self, wallet_address: str, tx_info: dict):
         """Process a new transaction and send notification"""
         try:
+            signature = tx_info['signature']
+            
+            # التحقق أولاً من عدم معالجة هذه المعاملة مسبقاً
+            if await self.db_manager.is_transaction_already_notified(signature):
+                logger.debug(f"⏭️ Transaction {signature[:16]}... already processed, skipping")
+                return
+
             # Get wallet info from database
             wallets = await self.db_manager.get_monitored_wallets_by_address(wallet_address)
             if not wallets:
@@ -861,14 +881,14 @@ class SolanaMonitor:
                 "id": 1,
                 "method": "getTransaction",
                 "params": [
-                    tx_info['signature'],
+                    signature,
                     {"encoding": "json", "maxSupportedTransactionVersion": 0}
                 ]
             }
 
             data = await self.make_rpc_call(payload)
             if not data or 'result' not in data or not data['result']:
-                logger.debug(f"No transaction data received for {tx_info['signature'][:16]}...")
+                logger.debug(f"No transaction data received for {signature[:16]}...")
                 return
 
             transaction = data['result']
@@ -876,10 +896,9 @@ class SolanaMonitor:
             # Extract transaction details
             amount, tx_type = self.calculate_balance_change(transaction, wallet_address)
             timestamp = format_timestamp(transaction.get('blockTime', 0))
-            signature = tx_info['signature']
             block_time = transaction.get('blockTime', 0)
 
-            logger.info(f"📝 Processing transaction: {amount} SOL ({tx_type}) for wallet {truncate_address(wallet_address)}")
+            logger.info(f"📝 Processing NEW transaction: {amount} SOL ({tx_type}) for wallet {truncate_address(wallet_address)}")
 
             # Check if this is a dust transaction (very small amount)
             try:
@@ -913,45 +932,54 @@ class SolanaMonitor:
                 # If amount conversion fails, proceed with notification
                 logger.warning(f"⚠️ Could not parse amount '{amount}' as float, proceeding with notification")
 
-            # Store transaction in database for all monitoring users
+            # Store transaction in database - only for the first user to avoid duplicates
+            transaction_stored = False
             for wallet_info in wallets:
-                await self.db_manager.add_transaction_record(
-                    wallet_address,
-                    wallet_info['chat_id'],
-                    signature,
-                    amount,
-                    tx_type,
-                    block_time or 0
-                )
-
-            logger.info(f"💾 Stored transaction in database for {len(wallets)} monitoring users")
-
-            # Send notification through global monitoring callback
-            callback_found = False
-            for task_key, task_info in self.monitoring_tasks.items():
-                if (isinstance(task_info, dict) and 
-                    'callback' in task_info and 
-                    task_info['callback'] and
-                    task_info.get('type') == 'global'):
-                    
-                    logger.info(f"📞 Calling notification callback for wallet {truncate_address(wallet_address)}")
-                    try:
-                        await task_info['callback'](
-                            wallets[0]['chat_id'],  # Use first user's chat_id as reference
-                            wallet_address,
-                            amount,
-                            tx_type,
-                            timestamp,
-                            signature
-                        )
-                        callback_found = True
-                        logger.info(f"✅ Notification callback executed successfully")
+                if not transaction_stored:
+                    success = await self.db_manager.add_transaction_record(
+                        wallet_address,
+                        wallet_info['chat_id'],
+                        signature,
+                        amount,
+                        tx_type,
+                        block_time or 0
+                    )
+                    if success:
+                        transaction_stored = True
+                        logger.info(f"💾 Stored NEW transaction in database")
                         break
-                    except Exception as callback_error:
-                        logger.error(f"❌ Error in notification callback: {callback_error}")
+                    else:
+                        logger.debug(f"📋 Transaction {signature[:16]}... already exists in database")
+                        return  # إنهاء المعالجة إذا كانت المعاملة موجودة مسبقاً
 
-            if not callback_found:
-                logger.warning(f"⚠️ No notification callback found for wallet {truncate_address(wallet_address)}")
+            # إرسال الإشعار فقط إذا تم حفظ المعاملة كجديدة
+            if transaction_stored:
+                # Send notification through global monitoring callback
+                callback_found = False
+                for task_key, task_info in self.monitoring_tasks.items():
+                    if (isinstance(task_info, dict) and 
+                        'callback' in task_info and 
+                        task_info['callback'] and
+                        task_info.get('type') == 'global'):
+                        
+                        logger.info(f"📞 Calling notification callback for wallet {truncate_address(wallet_address)}")
+                        try:
+                            await task_info['callback'](
+                                wallets[0]['chat_id'],  # Use first user's chat_id as reference
+                                wallet_address,
+                                amount,
+                                tx_type,
+                                timestamp,
+                                signature
+                            )
+                            callback_found = True
+                            logger.info(f"✅ Notification sent successfully")
+                            break
+                        except Exception as callback_error:
+                            logger.error(f"❌ Error in notification callback: {callback_error}")
+
+                if not callback_found:
+                    logger.warning(f"⚠️ No notification callback found for wallet {truncate_address(wallet_address)}")
 
         except Exception as e:
             logger.error(f"❌ Error processing transaction for {truncate_address(wallet_address)}: {e}")
@@ -1663,6 +1691,14 @@ class SolanaWalletBot:
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle text messages"""
+        # تجاهل رسائل القناة تماماً لتجنب الأخطاء
+        if update.channel_post:
+            return
+        
+        # التأكد من وجود رسالة عادية
+        if not update.message:
+            return
+            
         chat_id = update.effective_chat.id
         text = update.message.text
 
@@ -2223,7 +2259,7 @@ class SolanaWalletBot:
                                     task_info.get('task') and 
                                     not task_info['task'].done())
 
-                logger.info(f"🩺 Health check: {active_tasks} active monitoring tasks")
+                logger.debug(f"🩺 Health check: {active_tasks} active monitoring tasks")
 
                 # Restart global monitoring if it died
                 if 'global_monitor' not in self.monitor.monitoring_tasks or \
