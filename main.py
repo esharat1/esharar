@@ -53,20 +53,20 @@ SOLANA_RPC_URL = os.getenv("RPC_URL")
 POLLING_INTERVAL = 5  # seconds - تحسين للحصول على إشعارات أسرع مع دقة عالية
 MAX_MONITORED_WALLETS = 100000
 
-# Smart Rate limiting configuration - نظام محسن للأداء العالي (مُحدث)
-BASE_DELAY = 0.25   # 250ms base delay between requests (هدف الأداء)
+# Smart Rate limiting configuration - وضع normal متدرج وآمن 
+BASE_DELAY = 0.35   # 350ms base delay - بداية محافظة (سيقل تدريجياً إلى 0.25)
 MAX_DELAY = 4.0     # Maximum delay cap (4 seconds) - للحماية من الحمولة الزائدة
-MIN_DELAY = 0.06    # Minimum delay (60ms) - محسن للسرعة القصوى
-BACKOFF_MULTIPLIER = 1.4  # Exponential backoff multiplier (متوازن)
-DELAY_REDUCTION_FACTOR = 0.92  # Gradual delay reduction on success (تعافي أسرع)
-BATCH_SIZE = 12     # Number of wallets to process per batch (هدف 12-15)
-BATCH_DELAY = 0.8   # Delay between batches in seconds (مخفض للسرعة)
+MIN_DELAY = 0.08    # Minimum delay (80ms) - محافظ أكثر
+BACKOFF_MULTIPLIER = 1.3  # Exponential backoff multiplier (أقل عدوانية)
+DELAY_REDUCTION_FACTOR = 0.94  # Gradual delay reduction on success (تقليل أبطأ)
+BATCH_SIZE = 10     # Number of wallets to process per batch (بداية بـ 10، سيزيد لـ 12)
+BATCH_DELAY = 1.0   # Delay between batches in seconds (أطول للأمان)
 MAX_RETRIES = 2     # Maximum retries for failed requests
-MAX_RPC_CALLS_PER_SECOND = 30  # Maximum RPC calls per second (زيادة طفيفة)
+MAX_RPC_CALLS_PER_SECOND = 25  # Maximum RPC calls per second (أقل للأمان)
 
-# تحسين إضافي للأداء
+# تحسين إضافي للأداء - وضع متدرج
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
-SUCCESS_THRESHOLD_FOR_SPEEDUP = 2  # عدد النجاحات المتتالية لتسريع النظام (أسرع)
+SUCCESS_THRESHOLD_FOR_SPEEDUP = 4  # عدد النجاحات المتتالية لتسريع النظام (أبطأ للأمان)
 
 # Dust transaction filter - تقليل الحد الأدنى للحصول على إشعارات أكثر
 MIN_NOTIFICATION_AMOUNT = 0.0001  # SOL - حد أدنى أقل لضمان اكتشاف المعاملات الصغيرة
@@ -567,7 +567,7 @@ class SmartRateLimiter:
         self.consecutive_successes = 0
         self.last_error_time = None
         self.last_429_time = None
-        self.performance_mode = 'fast'  # بدء بوضع fast للاستفادة من الاستقرار
+        self.performance_mode = 'normal'  # بدء بوضع normal متدرج وآمن
         self.recent_requests = []  # Track request timings
         self.stable_cycles = 0  # عدد الدورات المستقرة
         self.target_delay_reached = False  # هل وصلنا للهدف
@@ -629,24 +629,33 @@ class SmartRateLimiter:
             if self.consecutive_successes >= reduction_threshold:
                 old_delay = self.current_delay
                 
-                # تقليل تدريجي نحو هدف 0.25s
+                # تقليل تدريجي نحو هدف 0.25s بحذر أكبر
                 target_delay = 0.25
                 
                 if self.performance_mode == 'fast':
-                    # تقليل قوي في الوضع السريع
+                    # تقليل متوسط في الوضع السريع (أبطأ من السابق)
                     if self.current_delay > target_delay:
                         # اقتراب تدريجي من الهدف
-                        reduction_factor = 0.88 if self.current_delay > 0.4 else 0.94
+                        reduction_factor = 0.92 if self.current_delay > 0.4 else 0.96
                         self.current_delay = max(target_delay, self.current_delay * reduction_factor)
                     else:
                         # أقل من الهدف - تقليل بحذر
-                        self.current_delay = max(MIN_DELAY, self.current_delay * 0.96)
+                        self.current_delay = max(MIN_DELAY, self.current_delay * 0.98)
                 elif self.performance_mode == 'normal':
-                    # تقليل متوسط
-                    self.current_delay = max(MIN_DELAY, self.current_delay * DELAY_REDUCTION_FACTOR)
+                    # تقليل تدريجي نحو 0.25s في الوضع العادي
+                    if self.stable_cycles >= 15:
+                        # بعد استقرار طويل، تقليل نحو الهدف
+                        if self.current_delay > target_delay:
+                            reduction_factor = 0.96
+                            self.current_delay = max(target_delay, self.current_delay * reduction_factor)
+                        else:
+                            self.current_delay = max(MIN_DELAY, self.current_delay * DELAY_REDUCTION_FACTOR)
+                    else:
+                        # تقليل محافظ في البداية
+                        self.current_delay = max(MIN_DELAY * 1.5, self.current_delay * DELAY_REDUCTION_FACTOR)
                 else:  # careful mode
-                    # تقليل محافظ
-                    self.current_delay = max(MIN_DELAY * 2, self.current_delay * 0.98)
+                    # تقليل محافظ جداً
+                    self.current_delay = max(MIN_DELAY * 2, self.current_delay * 0.99)
                 
                 self.consecutive_successes = 0
                 
@@ -709,27 +718,38 @@ class SmartRateLimiter:
         }
 
     def get_optimal_batch_size(self) -> int:
-        """Calculate optimal batch size based on current performance (12-15 target)"""
+        """Calculate optimal batch size based on current performance (تدريجي نحو 12)"""
         if not ADAPTIVE_BATCH_SIZING:
             return BATCH_SIZE
             
         if self.performance_mode == 'fast':
-            # في الوضع السريع: 14-15 محفظة
-            base_size = 15 if self.target_delay_reached else 14
-            return min(base_size, 18)  # حد أقصى 18 للأمان
+            # في الوضع السريع: 12-14 محفظة (أقل من السابق)
+            base_size = 14 if self.target_delay_reached else 12
+            return min(base_size, 15)  # حد أقصى 15 للأمان
         elif self.performance_mode == 'normal':
-            # في الوضع العادي: 12-13 محفظة
-            return 13 if self.stable_cycles > 5 else 12
+            # في الوضع العادي: تدريج من 10 إلى 12
+            if self.stable_cycles >= 10:
+                return 12  # الهدف النهائي
+            elif self.stable_cycles >= 5:
+                return 11  # مرحلة وسطى
+            else:
+                return 10  # البداية الآمنة
         else:  # careful mode
-            # في الوضع الحذر: 8-10 محافظ
-            return max(8, BATCH_SIZE - 4)
+            # في الوضع الحذر: 8-9 محافظ
+            return max(8, BATCH_SIZE - 2)
     
     def get_optimal_batch_delay(self) -> float:
         """Calculate optimal delay between batches based on performance mode"""
         if self.performance_mode == 'fast':
-            return 0.6 if self.target_delay_reached else 0.8
+            return 0.7 if self.target_delay_reached else 0.9  # أبطأ قليلاً للأمان
         elif self.performance_mode == 'normal':
-            return BATCH_DELAY
+            # تقليل تدريجي للتأخير بين الدفعات
+            if self.stable_cycles >= 15:
+                return 0.8  # هدف نهائي أسرع
+            elif self.stable_cycles >= 8:
+                return 0.9  # مرحلة وسطى
+            else:
+                return BATCH_DELAY  # البداية المحافظة
         else:  # careful mode
             return BATCH_DELAY * 1.5
 
