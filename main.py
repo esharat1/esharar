@@ -1934,7 +1934,22 @@ class SolanaWalletBot:
             if text:
                 await self.handle_private_key_input(update, context, text)
         else:
-            await update.message.reply_text(MESSAGES["help_text"])
+            # Only show help if the message doesn't contain potential private keys
+            if text and not self.might_contain_private_keys(text):
+                await update.message.reply_text(MESSAGES["help_text"])
+
+    def might_contain_private_keys(self, text: str) -> bool:
+        """Check if text might contain private keys"""
+        import re
+        
+        # Pattern for base58 keys (typically 87-88 characters)
+        base58_pattern = r'[1-9A-HJ-NP-Za-km-z]{87,88}'
+        
+        # Pattern for array format keys
+        array_pattern = r'\[\s*(?:\d+\s*,\s*){63}\d+\s*\]'
+        
+        # Check if text contains potential private keys
+        return bool(re.search(base58_pattern, text) or re.search(array_pattern, text))
 
     async def handle_private_key_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, private_key: str):
         """Handle private key input"""
