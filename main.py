@@ -53,20 +53,20 @@ SOLANA_RPC_URL = os.getenv("RPC_URL")
 POLLING_INTERVAL = 5  # seconds - تحسين للحصول على إشعارات أسرع مع دقة عالية
 MAX_MONITORED_WALLETS = 100000
 
-# Smart Rate limiting configuration - نظام محسن للأداء العالي مع 250+ محفظة
-BASE_DELAY = 0.25   # 250ms base delay between requests (محسن للأداء)
-MAX_DELAY = 3.0     # Maximum delay cap (3 seconds) - مخفض أكثر
-MIN_DELAY = 0.08    # Minimum delay (80ms) - أقل للسرعة
-BACKOFF_MULTIPLIER = 1.3  # Exponential backoff multiplier (أقل عدوانية)
-DELAY_REDUCTION_FACTOR = 0.95  # Gradual delay reduction on success (تعافي أسرع)
-BATCH_SIZE = 12     # Number of wallets to process per batch (محسن لـ 25 req/sec)
-BATCH_DELAY = 1.2   # Delay between batches in seconds (مخفض للسرعة)
-MAX_RETRIES = 2     # Maximum retries for failed requests
+# Smart Rate limiting configuration - محسن للسرعة القصوى مع الحفاظ على 25 req/sec
+BASE_DELAY = 0.04   # 40ms base delay = 25 req/sec بالضبط
+MAX_DELAY = 2.0     # Maximum delay cap (2 seconds) - مخفض للسرعة
+MIN_DELAY = 0.04    # Minimum delay (40ms) = أقصى سرعة ممكنة
+BACKOFF_MULTIPLIER = 1.2  # Exponential backoff multiplier (أقل عدوانية)
+DELAY_REDUCTION_FACTOR = 0.92  # Gradual delay reduction on success (تعافي أسرع)
+BATCH_SIZE = 20     # Number of wallets to process per batch (دفعات أكبر للسرعة)
+BATCH_DELAY = 0.5   # Delay between batches in seconds (مخفض للسرعة القصوى)
+MAX_RETRIES = 1     # Maximum retries for failed requests (أقل للسرعة)
 MAX_RPC_CALLS_PER_SECOND = 25  # Maximum RPC calls per second
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
-SUCCESS_THRESHOLD_FOR_SPEEDUP = 3  # عدد النجاحات المتتالية لتسريع النظام
+SUCCESS_THRESHOLD_FOR_SPEEDUP = 2  # عدد النجاحات المتتالية لتسريع النظام (أسرع)
 
 # Dust transaction filter - تقليل الحد الأدنى للحصول على إشعارات أكثر
 MIN_NOTIFICATION_AMOUNT = 0.0001  # SOL - حد أدنى أقل لضمان اكتشاف المعاملات الصغيرة
@@ -584,11 +584,11 @@ class SmartRateLimiter:
             # Calculate current request rate
             current_rate = len(self.recent_requests)
             
-            # Dynamic delay adjustment based on request rate
-            if current_rate > MAX_RPC_CALLS_PER_SECOND * 0.9:  # Near limit
-                self.current_delay = max(self.current_delay, 0.5)
+            # Dynamic delay adjustment based on request rate (محسن للسرعة)
+            if current_rate > MAX_RPC_CALLS_PER_SECOND * 0.95:  # Very near limit
+                self.current_delay = max(self.current_delay, 0.2)  # تأخير أقل
                 self.performance_mode = 'careful'
-            elif current_rate < MAX_RPC_CALLS_PER_SECOND * 0.7:  # Safe zone
+            elif current_rate < MAX_RPC_CALLS_PER_SECOND * 0.8:  # Safe zone أوسع
                 self.performance_mode = 'fast'
             else:
                 self.performance_mode = 'normal'
@@ -676,9 +676,9 @@ class SmartRateLimiter:
             return BATCH_SIZE
             
         if self.performance_mode == 'fast':
-            return min(BATCH_SIZE + 4, 20)  # Increase batch size when safe
+            return min(BATCH_SIZE + 5, 25)  # دفعات أكبر في الوضع الآمن
         elif self.performance_mode == 'careful':
-            return max(BATCH_SIZE - 3, 6)   # Reduce batch size when careful
+            return max(BATCH_SIZE - 5, 8)   # تقليل أقل في الوضع الحذر
         else:
             return BATCH_SIZE
 
@@ -890,13 +890,13 @@ class SolanaMonitor:
                         total_successful += batch_result['successful_checks']
                         total_failed += batch_result['failed_checks']
                         
-                        # Dynamic delay between batches based on performance mode
+                        # Dynamic delay between batches based on performance mode (محسن للسرعة)
                         if i + current_batch_size < len(all_wallets):
                             dynamic_delay = BATCH_DELAY
                             if self.rate_limiter.performance_mode == 'fast':
-                                dynamic_delay *= 0.7  # Faster in safe mode
+                                dynamic_delay *= 0.5  # أسرع في الوضع الآمن
                             elif self.rate_limiter.performance_mode == 'careful':
-                                dynamic_delay *= 1.5  # Slower when careful
+                                dynamic_delay *= 1.2  # تأخير أقل في الوضع الحذر
                             
                             logger.debug(f"⏱️ Waiting {dynamic_delay:.1f}s before next batch...")
                             await asyncio.sleep(dynamic_delay)
@@ -1033,7 +1033,7 @@ class SolanaMonitor:
                 "method": "getSignaturesForAddress",
                 "params": [
                     wallet_address,
-                    {"limit": 15}  # زيادة حد المعاملات لاكتشاف أفضل وأسرع
+                    {"limit": 10}  # تقليل حد المعاملات للسرعة القصوى
                 ]
             }
 
