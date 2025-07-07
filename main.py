@@ -86,7 +86,7 @@ MESSAGES = {
     "monitoring_status": "📊 حالة المراقبة:\n\n{status}",
     "wallet_already_monitored": "⚠️ هذه المحفظة مراقبة بالفعل.",
     "select_wallet_to_stop": "اختر المحفظة التي تريد إيقاف مراقبتها:",
-    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/list - عرض المحافظ المراقبة\n/r - عرض المحافظ التي بها رصيد SOL فقط\n/k - تصدير المفاتيح الخاصة\n/stats - عرض إحصائيات النظام والأداء\n/help - عرض هذه المساعدة\n\n👑 أوامر المشرف:\n/filter - تعديل الحد الأدنى للإشعارات\n/transfer - نقل جميع المحافظ لمستخدم محدد\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
+    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/stop <عنوان> - إيقاف مراقبة محفظة محددة\n/list - عرض المحافظ المراقبة\n/r - عرض المحافظ التي بها رصيد SOL فقط\n/k - تصدير المفاتيح الخاصة\n/stats - عرض إحصائيات النظام والأداء\n/help - عرض هذه المساعدة\n\n👑 أوامر المشرف:\n/filter - تعديل الحد الأدنى للإشعارات\n/transfer - نقل جميع المحافظ لمستخدم محدد\n\n💡 نصائح:\n• يمكنك استخدام جزء من عنوان المحفظة مع /stop\n• مثال: /stop 7xKXtg2CW\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
 }
 
 
@@ -1266,7 +1266,7 @@ class SolanaWalletBot:
         await update.message.reply_text(MESSAGES["enter_private_key"])
 
     async def stop_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stop command"""
+        """Handle /stop command with optional wallet address parameter"""
         chat_id = update.effective_chat.id
         monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
 
@@ -1274,21 +1274,74 @@ class SolanaWalletBot:
             await update.message.reply_text(MESSAGES["no_wallets_monitored"])
             return
 
-        # Create inline keyboard with wallet options
-        keyboard = []
-        for wallet in monitored_wallets:
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"🔴 {truncate_address(wallet['wallet_address'])}",
-                    callback_data=f"stop_{wallet['wallet_address']}"
+        # Check if wallet address is provided as parameter
+        if context.args and len(context.args) > 0:
+            wallet_address = context.args[0].strip()
+            
+            # Find the wallet in user's monitored wallets
+            wallet_found = False
+            for wallet in monitored_wallets:
+                if (wallet['wallet_address'] == wallet_address or 
+                    wallet['wallet_address'].startswith(wallet_address) or
+                    wallet_address in wallet['wallet_address']):
+                    
+                    # Stop monitoring this wallet
+                    success = await self.monitor.remove_wallet(wallet['wallet_address'], chat_id)
+                    
+                    if success:
+                        await update.message.reply_text(
+                            MESSAGES["monitoring_stopped"].format(
+                                wallet_address=truncate_address(wallet['wallet_address'])
+                            )
+                        )
+                        logger.info(f"Stopped monitoring wallet {wallet['wallet_address']} via command parameter")
+                    else:
+                        await update.message.reply_text(MESSAGES["wallet_not_found"])
+                    
+                    wallet_found = True
+                    break
+            
+            if not wallet_found:
+                await update.message.reply_text(
+                    f"❌ لم يتم العثور على المحفظة: {wallet_address}\n\n"
+                    "تأكد من صحة العنوان أو استخدم /stop بدون معاملات لعرض قائمة المحافظ."
                 )
-            ])
+            return
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            MESSAGES["select_wallet_to_stop"],
-            reply_markup=reply_markup
-        )
+        # If no address provided, show traditional interface for small numbers
+        if len(monitored_wallets) <= 20:  # Show buttons only for 20 wallets or less
+            # Create inline keyboard with wallet options
+            keyboard = []
+            for wallet in monitored_wallets:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"🔴 {truncate_address(wallet['wallet_address'])}",
+                        callback_data=f"stop_{wallet['wallet_address']}"
+                    )
+                ])
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                MESSAGES["select_wallet_to_stop"],
+                reply_markup=reply_markup
+            )
+        else:
+            # For many wallets, show text list with instructions
+            message = f"📋 لديك {len(monitored_wallets)} محفظة مراقبة.\n\n"
+            message += "لإيقاف مراقبة محفظة محددة، استخدم:\n"
+            message += "<code>/stop عنوان_المحفظة</code>\n\n"
+            message += "يمكنك استخدام جزء من العنوان أو العنوان كاملاً.\n\n"
+            message += "📝 أول 10 محافظ:\n"
+            
+            for i, wallet in enumerate(monitored_wallets[:10], 1):
+                nickname = f" ({wallet['nickname']})" if wallet['nickname'] else ""
+                message += f"{i}. <code>{truncate_address(wallet['wallet_address'])}</code>{nickname}\n"
+            
+            if len(monitored_wallets) > 10:
+                message += f"\n... و {len(monitored_wallets) - 10} محفظة أخرى\n"
+                message += "\nاستخدم /list لعرض جميع المحافظ مع العناوين الكاملة."
+            
+            await update.message.reply_text(message, parse_mode='HTML')
 
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /list command - send wallets as formatted text file with private keys"""
