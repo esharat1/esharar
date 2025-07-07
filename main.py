@@ -50,19 +50,37 @@ setup_logging()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 SOLANA_RPC_URL = os.getenv("RPC_URL")
-POLLING_INTERVAL = 5  # seconds - تحسين للحصول على إشعارات أسرع مع دقة عالية
+SOLANA_RPC_URL2 = os.getenv("RPC_URL2")
+POLLING_INTERVAL = 3  # seconds - تحسين للوصول لهدف 60 ثانية
 MAX_MONITORED_WALLETS = 100000
 
-# Smart Rate limiting configuration - نظام محسن للأداء العالي مع 250+ محفظة
-BASE_DELAY = 0.25   # 250ms base delay between requests (محسن للأداء)
-MAX_DELAY = 3.0     # Maximum delay cap (3 seconds) - مخفض أكثر
-MIN_DELAY = 0.08    # Minimum delay (80ms) - أقل للسرعة
-BACKOFF_MULTIPLIER = 1.3  # Exponential backoff multiplier (أقل عدوانية)
-DELAY_REDUCTION_FACTOR = 0.95  # Gradual delay reduction on success (تعافي أسرع)
-BATCH_SIZE = 20     # Number of wallets to process per batch (محسن لـ 25 req/sec)
-BATCH_DELAY = 1.2   # Delay between batches in seconds (مخفض للسرعة)
-MAX_RETRIES = 2     # Maximum retries for failed requests
-MAX_RPC_CALLS_PER_SECOND = 25  # Maximum RPC calls per second
+# Multi-RPC Configuration - نظام توزيع الطلبات بين providers متعددين
+RPC_PROVIDERS = {
+    'primary': {
+        'url': SOLANA_RPC_URL,
+        'name': 'Alchemy',
+        'max_requests_per_second': 25,
+        'priority': 1
+    },
+    'secondary': {
+        'url': SOLANA_RPC_URL2,
+        'name': 'QuickNode', 
+        'max_requests_per_second': 15,
+        'priority': 2
+    }
+}
+
+# Optimized Rate limiting configuration for 60-second cycle target
+BASE_DELAY = 0.15   # 150ms base delay - محسن للسرعة
+MAX_DELAY = 2.0     # Maximum delay cap (2 seconds)
+MIN_DELAY = 0.05    # Minimum delay (50ms) - أسرع
+BACKOFF_MULTIPLIER = 1.2  # Lower multiplier for faster recovery
+DELAY_REDUCTION_FACTOR = 0.92  # Faster delay reduction
+BATCH_SIZE = 20     # Increased batch size for faster processing
+BATCH_DELAY = 0.8   # Reduced delay between batches
+MAX_RETRIES = 2     # Keep retries low for speed
+TARGET_CYCLE_TIME = 60  # Target cycle completion time in seconds
+MAX_RPC_CALLS_PER_SECOND = 30  # Global rate limit for all providers combined
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
@@ -557,108 +575,297 @@ def format_timestamp(timestamp: int) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
-# Smart Rate Limiter Class with advanced adaptive delays
-class SmartRateLimiter:
+# Multi-RPC Smart Rate Limiter with intelligent load balancing
+class MultiRPCRateLimiter:
     def __init__(self):
-        self.current_delay = BASE_DELAY
+        self.providers = {}
         self.lock = asyncio.Lock()
+        self.global_requests = []  # Track all requests across providers
+        self.performance_mode = 'normal'  # Add global performance mode
+        
+        # Add missing global attributes
+        self.current_delay = BASE_DELAY
         self.success_count = 0
         self.fail_count = 0
         self.consecutive_successes = 0
         self.last_error_time = None
         self.last_429_time = None
-        self.performance_mode = 'normal'  # normal, fast, careful
-        self.recent_requests = []  # Track request timings
+        self.recent_requests = []
+        
+        # Initialize each provider's state
+        for provider_id, config in RPC_PROVIDERS.items():
+            if config['url']:  # Only initialize if URL is provided
+                self.providers[provider_id] = {
+                    'config': config,
+                    'current_delay': BASE_DELAY,
+                    'success_count': 0,
+                    'fail_count': 0,
+                    'consecutive_successes': 0,
+                    'last_error_time': None,
+                    'last_429_time': None,
+                    'recent_requests': [],
+                    'performance_mode': 'normal',
+                    'is_available': True,
+                    'health_score': 100.0  # 0-100 score for provider health
+                }
+        
+        logger.info(f"🔄 Initialized {len(self.providers)} RPC providers: {list(self.providers.keys())}")
 
-    async def acquire(self):
-        """Smart rate limiting with adaptive delay and performance monitoring"""
-        async with self.lock:
-            current_time = asyncio.get_event_loop().time()
+    def get_optimal_provider(self) -> str:
+        """Select the best RPC provider based on current load and health"""
+        if not self.providers:
+            return None
             
-            # Clean old request times (keep only last 60 seconds)
-            self.recent_requests = [t for t in self.recent_requests if current_time - t < 60]
-            
-            # Add current request time
-            self.recent_requests.append(current_time)
-            
-            # Calculate current request rate
-            current_rate = len(self.recent_requests)
-            
-            # Dynamic delay adjustment based on request rate
-            if current_rate > MAX_RPC_CALLS_PER_SECOND * 0.9:  # Near limit
-                self.current_delay = max(self.current_delay, 0.5)
-                self.performance_mode = 'careful'
-            elif current_rate < MAX_RPC_CALLS_PER_SECOND * 0.7:  # Safe zone
-                self.performance_mode = 'fast'
-            else:
-                self.performance_mode = 'normal'
-            
-            # Apply current delay
-            if self.current_delay > 0:
-                await asyncio.sleep(self.current_delay)
-
-    async def on_success(self):
-        """Called when request succeeds - aggressive delay reduction"""
-        async with self.lock:
-            self.success_count += 1
-            self.consecutive_successes += 1
-            
-            # More aggressive delay reduction in fast mode
-            reduction_threshold = SUCCESS_THRESHOLD_FOR_SPEEDUP if self.performance_mode == 'fast' else 5
-            
-            if self.consecutive_successes >= reduction_threshold:
-                old_delay = self.current_delay
+        current_time = asyncio.get_event_loop().time()
+        best_provider = None
+        best_score = -1
+        
+        for provider_id, provider_data in self.providers.items():
+            if not provider_data['is_available']:
+                continue
                 
-                if self.performance_mode == 'fast':
-                    # Aggressive reduction when safe
-                    self.current_delay = max(MIN_DELAY, self.current_delay * 0.9)
+            config = provider_data['config']
+            
+            # Clean old requests (last 10 seconds)
+            provider_data['recent_requests'] = [
+                t for t in provider_data['recent_requests'] 
+                if current_time - t < 10
+            ]
+            
+            # Calculate current load (requests per second)
+            current_load = len(provider_data['recent_requests']) / 10.0
+            load_percentage = (current_load / config['max_requests_per_second']) * 100
+            
+            # Calculate provider score based on:
+            # 1. Health score (0-100)
+            # 2. Current load (lower is better)
+            # 3. Priority (lower number = higher priority)
+            # 4. Recent errors
+            
+            health_penalty = (100 - provider_data['health_score']) * 0.5
+            load_penalty = load_percentage * 0.3
+            priority_bonus = (3 - config['priority']) * 10  # Higher priority = bonus
+            
+            # Recent 429 errors penalty
+            error_penalty = 0
+            if provider_data['last_429_time']:
+                time_since_429 = current_time - provider_data['last_429_time']
+                if time_since_429 < 30:  # Last 30 seconds
+                    error_penalty = max(0, 30 - time_since_429) * 2
+            
+            # Calculate final score
+            score = 100 + priority_bonus - health_penalty - load_penalty - error_penalty
+            
+            # Additional bonus if provider is significantly under-utilized
+            if load_percentage < 50:
+                score += (50 - load_percentage) * 0.2
+            
+            if score > best_score:
+                best_score = score
+                best_provider = provider_id
+        
+        return best_provider
+
+    async def acquire(self, preferred_provider: str = None):
+        """Smart rate limiting with provider selection"""
+        async with self.lock:
+            # Select provider
+            provider_id = preferred_provider or self.get_optimal_provider()
+            
+            if not provider_id or provider_id not in self.providers:
+                if self.providers:
+                    provider_id = list(self.providers.keys())[0]  # Fallback to first available
                 else:
-                    # Normal reduction
-                    self.current_delay = max(MIN_DELAY, self.current_delay * DELAY_REDUCTION_FACTOR)
-                
-                self.consecutive_successes = 0
-                
-                if old_delay != self.current_delay:
-                    logger.debug(f"🟢 {self.performance_mode.upper()} mode: Reduced delay from {old_delay:.3f}s to {self.current_delay:.3f}s")
-
-    async def on_rate_limit_error(self):
-        """Called when 429 or rate limit error occurs - smart backoff"""
-        async with self.lock:
-            self.fail_count += 1
-            self.consecutive_successes = 0
+                    raise Exception("No RPC providers configured")
+            
+            provider_data = self.providers[provider_id]
             current_time = asyncio.get_event_loop().time()
-            self.last_error_time = current_time
-            self.last_429_time = current_time
             
-            # Smart backoff based on how recently we hit 429
-            old_delay = self.current_delay
+            # Clean old request times
+            provider_data['recent_requests'] = [
+                t for t in provider_data['recent_requests'] 
+                if current_time - t < 10
+            ]
+            self.global_requests = [
+                t for t in self.global_requests 
+                if current_time - t < 60
+            ]
             
-            if self.last_429_time and current_time - self.last_429_time < 30:
-                # Recent 429 errors - be more careful
-                self.current_delay = min(MAX_DELAY, self.current_delay * 1.8)
-                self.performance_mode = 'careful'
-            else:
-                # First 429 in a while - moderate increase
-                self.current_delay = min(MAX_DELAY, self.current_delay * BACKOFF_MULTIPLIER)
+            # Check if we need to wait based on provider limits
+            config = provider_data['config']
+            recent_count = len(provider_data['recent_requests'])
             
-            logger.warning(f"🔴 Rate limit hit! Increased delay from {old_delay:.3f}s to {self.current_delay:.3f}s (mode: {self.performance_mode})")
+            if recent_count >= config['max_requests_per_second'] * 0.9:  # 90% of limit
+                # Calculate dynamic delay based on provider capacity
+                wait_time = max(provider_data['current_delay'], 1.0 / config['max_requests_per_second'])
+                await asyncio.sleep(wait_time)
+            elif provider_data['current_delay'] > 0:
+                await asyncio.sleep(provider_data['current_delay'])
+            
+            # Record request time
+            provider_data['recent_requests'].append(current_time)
+            self.global_requests.append(current_time)
+            
+            return provider_id, provider_data['config']['url']
 
-    async def on_network_error(self):
-        """Called when network/temporary error occurs"""
+    async def on_success(self, provider_id: str):
+        """Handle successful request"""
+        if provider_id not in self.providers:
+            return
+            
         async with self.lock:
-            self.fail_count += 1
-            self.consecutive_successes = 0
+            provider_data = self.providers[provider_id]
+            provider_data['success_count'] += 1
+            provider_data['consecutive_successes'] += 1
             
-            # Light increase for network errors
-            old_delay = self.current_delay
-            self.current_delay = min(MAX_DELAY, self.current_delay * 1.2)
+            # Improve health score
+            provider_data['health_score'] = min(100.0, provider_data['health_score'] + 1.0)
             
-            logger.debug(f"🟡 Network error! Increased delay from {old_delay:.3f}s to {self.current_delay:.3f}s")
+            # Reduce delay if consistently successful
+            if provider_data['consecutive_successes'] >= 3:
+                old_delay = provider_data['current_delay']
+                provider_data['current_delay'] = max(
+                    MIN_DELAY, 
+                    provider_data['current_delay'] * DELAY_REDUCTION_FACTOR
+                )
+                provider_data['consecutive_successes'] = 0
+                
+                if old_delay != provider_data['current_delay']:
+                    logger.debug(f"🟢 {provider_id}: Reduced delay from {old_delay:.3f}s to {provider_data['current_delay']:.3f}s")
+
+    async def on_rate_limit_error(self, provider_id: str):
+        """Handle rate limit error"""
+        if provider_id not in self.providers:
+            return
+            
+        async with self.lock:
+            provider_data = self.providers[provider_id]
+            provider_data['fail_count'] += 1
+            provider_data['consecutive_successes'] = 0
+            current_time = asyncio.get_event_loop().time()
+            provider_data['last_429_time'] = current_time
+            
+            # Decrease health score significantly
+            provider_data['health_score'] = max(0.0, provider_data['health_score'] - 15.0)
+            
+            # Increase delay
+            old_delay = provider_data['current_delay']
+            provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * BACKOFF_MULTIPLIER)
+            
+            # Temporarily disable provider if too many recent errors
+            if provider_data['health_score'] < 20:
+                provider_data['is_available'] = False
+                logger.warning(f"🔴 {provider_id}: Temporarily disabled due to low health score")
+                # Re-enable after 60 seconds
+                asyncio.create_task(self._re_enable_provider(provider_id, 60))
+            
+            logger.warning(f"🔴 {provider_id}: Rate limit hit! Delay: {old_delay:.3f}s → {provider_data['current_delay']:.3f}s")
+
+    async def on_network_error(self, provider_id: str):
+        """Handle network error"""
+        if provider_id not in self.providers:
+            return
+            
+        async with self.lock:
+            provider_data = self.providers[provider_id]
+            provider_data['fail_count'] += 1
+            provider_data['consecutive_successes'] = 0
+            
+            # Light decrease in health score
+            provider_data['health_score'] = max(0.0, provider_data['health_score'] - 5.0)
+            
+            # Light increase in delay
+            provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * 1.1)
+
+    async def _re_enable_provider(self, provider_id: str, delay_seconds: int):
+        """Re-enable provider after delay"""
+        await asyncio.sleep(delay_seconds)
+        if provider_id in self.providers:
+            self.providers[provider_id]['is_available'] = True
+            self.providers[provider_id]['health_score'] = 50.0  # Reset to medium health
+            logger.info(f"🟢 {provider_id}: Re-enabled after cooldown")
+
+    def get_stats(self) -> dict:
+        """Get comprehensive statistics"""
+        current_time = asyncio.get_event_loop().time()
+        global_rate = len([t for t in self.global_requests if current_time - t < 10])
+        
+        provider_stats = {}
+        total_requests = 0
+        total_errors = 0
+        
+        for provider_id, provider_data in self.providers.items():
+            recent_requests = len([t for t in provider_data['recent_requests'] if current_time - t < 10])
+            provider_total = provider_data['success_count'] + provider_data['fail_count']
+            total_requests += provider_total
+            total_errors += provider_data['fail_count']
+            
+            provider_stats[provider_id] = {
+                'name': provider_data['config']['name'],
+                'health_score': provider_data['health_score'],
+                'current_delay': provider_data['current_delay'],
+                'recent_rate': recent_requests,
+                'max_rate': provider_data['config']['max_requests_per_second'],
+                'load_percentage': (recent_requests / provider_data['config']['max_requests_per_second']) * 100,
+                'is_available': provider_data['is_available'],
+                'success_count': provider_data['success_count'],
+                'fail_count': provider_data['fail_count'],
+                'consecutive_successes': provider_data['consecutive_successes']
+            }
+        
+        return {
+            'global_rate': global_rate,
+            'total_requests': total_requests,
+            'total_errors': total_errors,
+            'success_rate': ((total_requests - total_errors) / total_requests * 100) if total_requests > 0 else 0,
+            'providers': provider_stats,
+            'optimal_provider': self.get_optimal_provider()
+        }
+
+    def get_optimal_batch_size(self) -> int:
+        """Calculate optimal batch size for 60-second target"""
+        if not self.providers:
+            return BATCH_SIZE
+            
+        # Calculate total available capacity
+        total_capacity = sum(
+            provider_data['config']['max_requests_per_second'] 
+            for provider_data in self.providers.values() 
+            if provider_data['is_available']
+        )
+        
+        # Aim for 60-second cycle: adjust batch size based on capacity
+        optimal_size = max(BATCH_SIZE, min(25, int(total_capacity * 0.6)))
+        return optimal_size
 
     def get_stats(self) -> dict:
         """Get current rate limiter statistics"""
         current_time = asyncio.get_event_loop().time()
         recent_rate = len([t for t in self.recent_requests if current_time - t < 10])  # Last 10 seconds
+        
+        # Get provider stats
+        provider_stats = {}
+        total_requests = 0
+        total_errors = 0
+        
+        for provider_id, provider_data in self.providers.items():
+            recent_requests = len([t for t in provider_data['recent_requests'] if current_time - t < 10])
+            provider_total = provider_data['success_count'] + provider_data['fail_count']
+            total_requests += provider_total
+            total_errors += provider_data['fail_count']
+            
+            provider_stats[provider_id] = {
+                'name': provider_data['config']['name'],
+                'health_score': provider_data['health_score'],
+                'current_delay': provider_data['current_delay'],
+                'recent_rate': recent_requests,
+                'max_rate': provider_data['config']['max_requests_per_second'],
+                'load_percentage': (recent_requests / provider_data['config']['max_requests_per_second']) * 100,
+                'is_available': provider_data['is_available'],
+                'success_count': provider_data['success_count'],
+                'fail_count': provider_data['fail_count'],
+                'consecutive_successes': provider_data['consecutive_successes']
+            }
         
         return {
             'current_delay': self.current_delay,
@@ -667,20 +874,14 @@ class SmartRateLimiter:
             'consecutive_successes': self.consecutive_successes,
             'performance_mode': self.performance_mode,
             'recent_request_rate': recent_rate,
-            'time_since_last_429': current_time - self.last_429_time if self.last_429_time else None
+            'time_since_last_429': current_time - self.last_429_time if self.last_429_time else None,
+            'global_rate': recent_rate,
+            'total_requests': total_requests,
+            'total_errors': total_errors,
+            'success_rate': ((total_requests - total_errors) / total_requests * 100) if total_requests > 0 else 100,
+            'providers': provider_stats,
+            'optimal_provider': self.get_optimal_provider()
         }
-
-    def get_optimal_batch_size(self) -> int:
-        """Calculate optimal batch size based on current performance"""
-        if not ADAPTIVE_BATCH_SIZING:
-            return BATCH_SIZE
-            
-        if self.performance_mode == 'fast':
-            return min(BATCH_SIZE + 4, 20)  # Increase batch size when safe
-        elif self.performance_mode == 'careful':
-            return max(BATCH_SIZE - 3, 6)   # Reduce batch size when careful
-        else:
-            return BATCH_SIZE
 
 # Solana Monitor
 class SolanaMonitor:
@@ -688,8 +889,9 @@ class SolanaMonitor:
         self.session = None
         self.monitoring_tasks: Dict[str, any] = {}
         self.db_manager = DatabaseManager()
-        self.rate_limiter = SmartRateLimiter()
+        self.rate_limiter = MultiRPCRateLimiter()
         self.wallet_rotation_index = 0  # For rotating wallet checks
+        self.cycle_start_time = None  # Track cycle timing for 60-second target
 
     async def start_session(self):
         """Initialize aiohttp session"""
@@ -702,81 +904,102 @@ class SolanaMonitor:
             await self.session.close()
             self.session = None
 
-    async def make_rpc_call(self, payload: dict, max_retries: int = MAX_RETRIES):
-        """Smart RPC call with adaptive rate limiting and intelligent retry logic"""
+    async def make_rpc_call(self, payload: dict, max_retries: int = MAX_RETRIES, preferred_provider: str = None):
+        """Smart RPC call with multi-provider load balancing and intelligent retry logic"""
+        used_providers = set()
+        
         for attempt in range(max_retries):
             try:
-                # Apply smart rate limiting
-                await self.rate_limiter.acquire()
+                # Get optimal provider and URL
+                provider_id, rpc_url = await self.rate_limiter.acquire(preferred_provider)
+                used_providers.add(provider_id)
 
                 if not self.session:
                     await self.start_session()
 
-                # Make the request with timeout
-                async with self.session.post(SOLANA_RPC_URL, json=payload, timeout=20) as response:
+                # Make the request with timeout  
+                async with self.session.post(rpc_url, json=payload, timeout=15) as response:
                     if response.status == 200:
                         data = await response.json()
                         # Notify rate limiter of success
-                        await self.rate_limiter.on_success()
+                        await self.rate_limiter.on_success(provider_id)
                         return data
                     
                     elif response.status == 429:  # Rate limit hit
-                        await self.rate_limiter.on_rate_limit_error()
+                        await self.rate_limiter.on_rate_limit_error(provider_id)
                         
                         if attempt < max_retries - 1:
-                            # Additional wait for rate limit errors
-                            extra_wait = min(5.0 * (attempt + 1), 30.0)
-                            logger.warning(f"Rate limited (429), waiting extra {extra_wait:.1f}s before retry {attempt + 1}")
-                            await asyncio.sleep(extra_wait)
-                            continue
+                            # Try different provider if available
+                            if len(used_providers) < len(self.rate_limiter.providers):
+                                logger.warning(f"Rate limited on {provider_id}, trying different provider")
+                                preferred_provider = None  # Let system choose different provider
+                                continue
+                            else:
+                                # All providers used, wait briefly
+                                extra_wait = min(2.0 * (attempt + 1), 10.0)
+                                logger.warning(f"All providers rate limited, waiting {extra_wait:.1f}s")
+                                await asyncio.sleep(extra_wait)
+                                continue
                         else:
-                            logger.error(f"Rate limit exceeded after {max_retries} attempts")
+                            logger.error(f"Rate limit exceeded on all providers after {max_retries} attempts")
                             return None
                     
                     elif response.status in [500, 502, 503, 504]:  # Server errors
-                        await self.rate_limiter.on_network_error()
+                        await self.rate_limiter.on_network_error(provider_id)
                         
                         if attempt < max_retries - 1:
-                            wait_time = min(2.0 ** attempt, 15.0)
-                            logger.warning(f"Server error {response.status}, waiting {wait_time:.1f}s before retry {attempt + 1}")
-                            await asyncio.sleep(wait_time)
-                            continue
+                            # Try different provider for server errors
+                            if len(used_providers) < len(self.rate_limiter.providers):
+                                logger.warning(f"Server error on {provider_id}, trying different provider")
+                                preferred_provider = None
+                                continue
+                            else:
+                                wait_time = min(1.5 ** attempt, 8.0)
+                                logger.warning(f"Server error {response.status}, waiting {wait_time:.1f}s")
+                                await asyncio.sleep(wait_time)
+                                continue
                         else:
-                            logger.error(f"Server error {response.status} after {max_retries} attempts")
+                            logger.error(f"Server error {response.status} on all providers")
                             return None
                     
                     else:
-                        logger.error(f"Unexpected HTTP status {response.status}")
+                        logger.error(f"Unexpected HTTP status {response.status} from {provider_id}")
                         return None
 
             except asyncio.TimeoutError:
-                await self.rate_limiter.on_network_error()
+                await self.rate_limiter.on_network_error(provider_id)
                 
                 if attempt < max_retries - 1:
-                    wait_time = min(3.0 * (attempt + 1), 20.0)
-                    logger.warning(f"Request timeout, waiting {wait_time:.1f}s before retry {attempt + 1}")
-                    await asyncio.sleep(wait_time)
-                    continue
+                    # Try different provider for timeouts
+                    if len(used_providers) < len(self.rate_limiter.providers):
+                        logger.warning(f"Timeout on {provider_id}, trying different provider")
+                        preferred_provider = None
+                        continue
+                    else:
+                        wait_time = min(2.0 * (attempt + 1), 10.0)
+                        logger.warning(f"Timeout on all providers, waiting {wait_time:.1f}s")
+                        await asyncio.sleep(wait_time)
+                        continue
                 else:
-                    logger.error(f"Request timeout after {max_retries} attempts")
+                    logger.error(f"Timeout on all providers after {max_retries} attempts")
                     return None
 
             except aiohttp.ClientError as e:
-                await self.rate_limiter.on_network_error()
+                await self.rate_limiter.on_network_error(provider_id)
                 
                 if attempt < max_retries - 1:
-                    wait_time = min(2.0 ** attempt, 10.0)
-                    logger.warning(f"Network error: {e}, waiting {wait_time:.1f}s before retry {attempt + 1}")
+                    wait_time = min(1.5 ** attempt, 5.0)
+                    logger.warning(f"Network error on {provider_id}: {e}, waiting {wait_time:.1f}s")
                     await asyncio.sleep(wait_time)
                     continue
                 else:
-                    logger.error(f"Network error after {max_retries} attempts: {e}")
+                    logger.error(f"Network error on all providers: {e}")
                     return None
 
             except Exception as e:
-                logger.error(f"Unexpected error on attempt {attempt + 1}: {e}")
+                logger.error(f"Unexpected error on {provider_id} attempt {attempt + 1}: {e}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(0.5)
                     continue
                 else:
                     return None
@@ -854,7 +1077,7 @@ class SolanaMonitor:
             cycle_count = 0
             while True:
                 try:
-                    cycle_start_time = asyncio.get_event_loop().time()
+                    self.cycle_start_time = asyncio.get_event_loop().time()
                     cycle_count += 1
                     
                     # Get all active wallets
@@ -866,69 +1089,86 @@ class SolanaMonitor:
 
                     logger.debug(f"🔄 Starting cycle #{cycle_count} for {len(all_wallets)} wallets")
 
-                    # Process wallets in adaptive batches
+                    # Process wallets in adaptive batches optimized for 60-second target
                     batch_results = []
                     total_successful = 0
                     total_failed = 0
                     
-                    # Get optimal batch size from rate limiter
+                    # Get optimal batch size from multi-RPC rate limiter
                     current_batch_size = self.rate_limiter.get_optimal_batch_size()
                     num_batches = (len(all_wallets) + current_batch_size - 1) // current_batch_size
                     
-                    logger.debug(f"📊 Using adaptive batch size: {current_batch_size} (mode: {self.rate_limiter.performance_mode})")
+                    # Calculate target time per batch to meet 60-second cycle goal
+                    target_processing_time = TARGET_CYCLE_TIME - POLLING_INTERVAL - 5  # Leave 5s buffer
+                    target_time_per_batch = target_processing_time / num_batches if num_batches > 0 else target_processing_time
+                    
+                    limiter_stats = self.rate_limiter.get_stats()
+                    optimal_provider = limiter_stats.get('optimal_provider', 'primary')
+                    
+                    logger.debug(f"📊 Multi-RPC batch size: {current_batch_size}, Target: {target_time_per_batch:.1f}s/batch, Optimal provider: {optimal_provider}")
                     
                     for i in range(0, len(all_wallets), current_batch_size):
+                        batch_start = asyncio.get_event_loop().time()
                         batch = all_wallets[i:i + current_batch_size]
                         batch_number = i // current_batch_size + 1
                         
                         logger.debug(f"🎯 Processing batch {batch_number}/{num_batches} ({len(batch)} wallets)")
                         
-                        # Process this batch
+                        # Process this batch with provider load balancing
                         batch_result = await self.process_wallet_batch(batch, batch_number, len(all_wallets))
                         batch_results.append(batch_result)
                         
                         total_successful += batch_result['successful_checks']
                         total_failed += batch_result['failed_checks']
                         
-                        # Dynamic delay between batches based on performance mode
+                        # Dynamic delay adjustment based on timing vs target
+                        batch_time = asyncio.get_event_loop().time() - batch_start
                         if i + current_batch_size < len(all_wallets):
-                            dynamic_delay = BATCH_DELAY
-                            if self.rate_limiter.performance_mode == 'fast':
-                                dynamic_delay *= 0.7  # Faster in safe mode
-                            elif self.rate_limiter.performance_mode == 'careful':
-                                dynamic_delay *= 1.5  # Slower when careful
+                            if batch_time < target_time_per_batch * 0.7:  # Running fast
+                                dynamic_delay = BATCH_DELAY * 0.5  # Reduce delay
+                            elif batch_time > target_time_per_batch * 1.2:  # Running slow
+                                dynamic_delay = BATCH_DELAY * 0.2  # Minimal delay
+                            else:
+                                dynamic_delay = BATCH_DELAY
                             
-                            logger.debug(f"⏱️ Waiting {dynamic_delay:.1f}s before next batch...")
+                            logger.debug(f"⏱️ Batch time: {batch_time:.1f}s (target: {target_time_per_batch:.1f}s), delay: {dynamic_delay:.1f}s")
                             await asyncio.sleep(dynamic_delay)
                     
-                    # Calculate cycle time
-                    cycle_time = asyncio.get_event_loop().time() - cycle_start_time
-                    
-                    # Log cycle summary with detailed performance stats
+                    # Calculate cycle time and performance metrics
+                    cycle_time = asyncio.get_event_loop().time() - self.cycle_start_time
                     limiter_stats = self.rate_limiter.get_stats()
-                    success_rate = (limiter_stats['success_count'] / (limiter_stats['success_count'] + limiter_stats['fail_count']) * 100) if (limiter_stats['success_count'] + limiter_stats['fail_count']) > 0 else 0
                     
-                    # Estimate total cycle time including polling interval
+                    # Enhanced logging with multi-provider stats
+                    provider_summary = []
+                    for provider_id, stats in limiter_stats['providers'].items():
+                        provider_summary.append(f"{stats['name']}({stats['load_percentage']:.0f}%)")
+                    
                     estimated_total_time = cycle_time + POLLING_INTERVAL
+                    cycle_status = "🎯 ON TARGET" if cycle_time <= TARGET_CYCLE_TIME else "⚠️ OVER TARGET"
                     
                     logger.info(
-                        f"🔄 Cycle #{cycle_count} completed in {cycle_time:.1f}s "
-                        f"(total with interval: {estimated_total_time:.1f}s) | "
-                        f"✅{total_successful} ❌{total_failed} checks | "
-                        f"Delay: {limiter_stats['current_delay']:.3f}s | "
-                        f"Mode: {limiter_stats['performance_mode']} | "
-                        f"Rate: {limiter_stats['recent_request_rate']}/10s | "
-                        f"Success: {success_rate:.1f}%"
+                        f"🔄 Cycle #{cycle_count}: {cycle_time:.1f}s + {POLLING_INTERVAL}s = {estimated_total_time:.1f}s {cycle_status} | "
+                        f"✅{total_successful} ❌{total_failed} | "
+                        f"Providers: {', '.join(provider_summary)} | "
+                        f"Global success: {limiter_stats['success_rate']:.1f}%"
                     )
                     
-                    # Performance warnings
-                    if cycle_time > 90:  # More than 1.5 minutes
-                        logger.warning(f"⚠️ Long cycle time: {cycle_time:.1f}s - consider optimization")
-                    elif cycle_time < 30:  # Less than 30 seconds
-                        logger.info(f"🚀 Fast cycle time: {cycle_time:.1f}s - excellent performance!")
+                    # Performance optimization feedback
+                    if cycle_time > TARGET_CYCLE_TIME:
+                        logger.warning(f"⚠️ Cycle exceeded target ({cycle_time:.1f}s > {TARGET_CYCLE_TIME}s)")
+                        # Auto-adjust batch size for next cycle
+                        if hasattr(self.rate_limiter, '_auto_adjust_batch_size'):
+                            self.rate_limiter._auto_adjust_batch_size(cycle_time, TARGET_CYCLE_TIME)
+                    elif cycle_time < TARGET_CYCLE_TIME * 0.7:
+                        logger.info(f"🚀 Fast cycle: {cycle_time:.1f}s - excellent performance!")
 
-                    # Wait for next polling interval
-                    await asyncio.sleep(POLLING_INTERVAL)
+                    # Adaptive polling interval based on performance
+                    if cycle_time < TARGET_CYCLE_TIME * 0.8:
+                        actual_polling = max(1, POLLING_INTERVAL - 1)  # Reduce interval if running fast
+                    else:
+                        actual_polling = POLLING_INTERVAL
+                    
+                    await asyncio.sleep(actual_polling)
 
                 except asyncio.CancelledError:
                     break
@@ -1895,11 +2135,11 @@ class SolanaWalletBot:
             await update.message.reply_text(f"❌ خطأ في التشخيص: {str(e)}")
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stats command - show enhanced rate limiter and monitoring statistics"""
+        """Handle /stats command - show enhanced Multi-RPC and monitoring statistics"""
         chat_id = update.effective_chat.id
         
         try:
-            # Get rate limiter stats
+            # Get multi-RPC rate limiter stats
             limiter_stats = self.monitor.rate_limiter.get_stats()
             
             # Get wallet and user counts
@@ -1907,53 +2147,66 @@ class SolanaWalletBot:
             all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
             users_count = await self.monitor.db_manager.get_users_count()
             
-            # Calculate success rate
-            total_requests = limiter_stats['success_count'] + limiter_stats['fail_count']
-            success_rate = (limiter_stats['success_count'] / total_requests * 100) if total_requests > 0 else 0
-            
-            # Calculate estimated cycle time
+            # Calculate estimated cycle time for 60-second target
             optimal_batch_size = self.monitor.rate_limiter.get_optimal_batch_size()
             num_batches = (len(all_wallets) + optimal_batch_size - 1) // optimal_batch_size if all_wallets else 0
-            estimated_cycle_time = (num_batches * BATCH_DELAY) + (len(all_wallets) * limiter_stats['current_delay'])
             
-            stats_message = f"📊 إحصائيات النظام المحسن:\n\n"
+            stats_message = f"📊 إحصائيات نظام Multi-RPC المحسن:\n\n"
             stats_message += f"🏦 البيانات:\n"
             stats_message += f"• المحافظ الخاصة بك: {len(monitored_wallets)}\n"
             stats_message += f"• إجمالي المحافظ: {len(all_wallets)}\n"
             stats_message += f"• المستخدمون النشطون: {users_count}\n\n"
             
-            stats_message += f"⚡ أداء النظام:\n"
-            stats_message += f"• وضع الأداء: {limiter_stats['performance_mode'].upper()}\n"
-            stats_message += f"• التأخير الحالي: {limiter_stats['current_delay']:.3f}s\n"
+            stats_message += f"🎯 هدف الأداء:\n"
+            stats_message += f"• الهدف: {TARGET_CYCLE_TIME} ثانية/دورة\n"
             stats_message += f"• حجم الدفعة التكيفي: {optimal_batch_size} محفظة\n"
-            stats_message += f"• عدد الدفعات المقدر: {num_batches}\n"
-            stats_message += f"• وقت الدورة المقدر: {estimated_cycle_time:.1f}s\n"
-            stats_message += f"• معدل الطلبات الحالي: {limiter_stats['recent_request_rate']}/10s\n\n"
+            stats_message += f"• عدد الدفعات: {num_batches}\n"
+            stats_message += f"• المزود الأمثل: {limiter_stats.get('optimal_provider', 'N/A')}\n\n"
             
-            stats_message += f"📈 إحصائيات الطلبات:\n"
-            stats_message += f"• الطلبات الناجحة: {limiter_stats['success_count']}\n"
-            stats_message += f"• الطلبات الفاشلة: {limiter_stats['fail_count']}\n"
-            stats_message += f"• معدل النجاح: {success_rate:.1f}%\n"
-            stats_message += f"• النجاحات المتتالية: {limiter_stats['consecutive_successes']}\n"
+            stats_message += f"🌐 موزعي RPC:\n"
+            for provider_id, provider_stats in limiter_stats['providers'].items():
+                status_icon = "🟢" if provider_stats['is_available'] else "🔴"
+                health_icon = "💚" if provider_stats['health_score'] > 80 else "💛" if provider_stats['health_score'] > 50 else "❤️"
+                
+                stats_message += f"{status_icon} {provider_stats['name']}:\n"
+                stats_message += f"  • الصحة: {health_icon} {provider_stats['health_score']:.0f}%\n"
+                stats_message += f"  • الحمولة: {provider_stats['load_percentage']:.0f}% ({provider_stats['recent_rate']}/{provider_stats['max_rate']}/s)\n"
+                stats_message += f"  • التأخير: {provider_stats['current_delay']:.3f}s\n"
+                stats_message += f"  • ✅{provider_stats['success_count']} ❌{provider_stats['fail_count']}\n\n"
             
-            # Time since last 429 error
-            if limiter_stats['time_since_last_429']:
-                stats_message += f"• آخر خطأ 429: {limiter_stats['time_since_last_429']:.0f}s مضت\n"
-            else:
-                stats_message += f"• آخر خطأ 429: لم يحدث بعد\n"
+            stats_message += f"📈 الأداء العام:\n"
+            stats_message += f"• معدل الطلبات العالمي: {limiter_stats['global_rate']}/10s\n"
+            stats_message += f"• إجمالي الطلبات: {limiter_stats['total_requests']}\n"
+            stats_message += f"• معدل النجاح: {limiter_stats['success_rate']:.1f}%\n\n"
             
-            stats_message += f"\n🔧 إعدادات النظام:\n"
-            stats_message += f"• النطاق: {MIN_DELAY:.3f}s - {MAX_DELAY:.1f}s\n"
-            stats_message += f"• حد الطلبات: {MAX_RPC_CALLS_PER_SECOND}/ثانية\n"
-            stats_message += f"• التكيف الذكي: {'✅' if ADAPTIVE_BATCH_SIZING else '❌'}\n"
+            # Current cycle timing if available
+            if hasattr(self.monitor, 'cycle_start_time') and self.monitor.cycle_start_time:
+                current_cycle_time = asyncio.get_event_loop().time() - self.monitor.cycle_start_time
+                progress = (current_cycle_time / TARGET_CYCLE_TIME) * 100
+                stats_message += f"⏱️ الدورة الحالية:\n"
+                stats_message += f"• الوقت المنقضي: {current_cycle_time:.1f}s\n"
+                stats_message += f"• التقدم: {progress:.1f}% من الهدف\n"
+                
+                if progress < 90:
+                    stats_message += f"• الحالة: 🚀 سريع\n"
+                elif progress < 110:
+                    stats_message += f"• الحالة: 🎯 مثالي\n"
+                else:
+                    stats_message += f"• الحالة: ⚠️ بطيء\n"
+                stats_message += "\n"
             
-            # Performance assessment
-            if estimated_cycle_time < 60:
-                stats_message += f"\n🚀 الأداء: ممتاز! (دورة < دقيقة)"
-            elif estimated_cycle_time < 120:
-                stats_message += f"\n✅ الأداء: جيد (دورة < دقيقتان)"
-            else:
-                stats_message += f"\n⚠️ الأداء: يحتاج تحسين (دورة > دقيقتان)"
+            stats_message += f"🔧 التحسينات:\n"
+            total_capacity = sum(p['max_rate'] for p in limiter_stats['providers'].values() if p['is_available'])
+            stats_message += f"• السعة الإجمالية: {total_capacity} طلب/ثانية\n"
+            stats_message += f"• الاستخدام المقدر: {(limiter_stats['global_rate'] * 6):.0f}% من السعة\n"
+            
+            # Performance assessment for 60-second target
+            if num_batches > 0:
+                estimated_time = (num_batches * BATCH_DELAY) + POLLING_INTERVAL
+                if estimated_time <= TARGET_CYCLE_TIME:
+                    stats_message += f"🎯 متوقع الوصول للهدف: {estimated_time:.1f}s ≤ {TARGET_CYCLE_TIME}s"
+                else:
+                    stats_message += f"⚠️ قد يتجاوز الهدف: {estimated_time:.1f}s > {TARGET_CYCLE_TIME}s"
             
             await update.message.reply_text(stats_message)
             
@@ -2623,7 +2876,7 @@ class SolanaWalletBot:
 
 
     async def health_monitor(self):
-        """Monitor bot health with rate limiter statistics"""
+        """Monitor bot health with Multi-RPC statistics"""
         while True:
             try:
                 await asyncio.sleep(60)  # Check every minute
@@ -2634,18 +2887,28 @@ class SolanaWalletBot:
                                     task_info.get('task') and 
                                     not task_info['task'].done())
 
-                # Get rate limiter statistics
+                # Get Multi-RPC rate limiter statistics
                 limiter_stats = self.monitor.rate_limiter.get_stats()
                 
                 # Get wallet count
                 all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
                 
+                # Create provider health summary
+                provider_health = []
+                for provider_id, stats in limiter_stats['providers'].items():
+                    status = "✅" if stats['is_available'] else "❌"
+                    health = f"{stats['health_score']:.0f}%"
+                    load = f"{stats['load_percentage']:.0f}%"
+                    provider_health.append(f"{stats['name']}{status}({health}/{load})")
+                
                 logger.info(
-                    f"🩺 Health check: "
-                    f"{active_tasks} active tasks, "
-                    f"{len(all_wallets)} wallets monitored, "
-                    f"Rate limiter: {limiter_stats['current_delay']:.3f}s delay, "
-                    f"Success rate: {limiter_stats['success_count']}/{limiter_stats['success_count'] + limiter_stats['fail_count']}"
+                    f"🩺 Multi-RPC Health: "
+                    f"{active_tasks} tasks, "
+                    f"{len(all_wallets)} wallets, "
+                    f"Global rate: {limiter_stats['global_rate']}/10s, "
+                    f"Success: {limiter_stats['success_rate']:.1f}%, "
+                    f"Providers: {', '.join(provider_health)}, "
+                    f"Optimal: {limiter_stats.get('optimal_provider', 'N/A')}"
                 )
 
                 # Restart global monitoring if it died
