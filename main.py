@@ -53,20 +53,20 @@ SOLANA_RPC_URL = os.getenv("RPC_URL")
 POLLING_INTERVAL = 5  # seconds - تحسين للحصول على إشعارات أسرع مع دقة عالية
 MAX_MONITORED_WALLETS = 100000
 
-# Smart Rate limiting configuration - وضع محسن للاستقرار
-BASE_DELAY = 0.27   # 270ms base delay - مثبت للاستقرار
-MAX_DELAY = 4.0     # Maximum delay cap (4 seconds) - للحماية من الحمولة الزائدة
-MIN_DELAY = 0.08    # Minimum delay (80ms) - محافظ أكثر
+# Smart Rate limiting configuration - نظام محسن للأداء العالي مع 250+ محفظة
+BASE_DELAY = 0.25   # 250ms base delay between requests (محسن للأداء)
+MAX_DELAY = 3.0     # Maximum delay cap (3 seconds) - مخفض أكثر
+MIN_DELAY = 0.08    # Minimum delay (80ms) - أقل للسرعة
 BACKOFF_MULTIPLIER = 1.3  # Exponential backoff multiplier (أقل عدوانية)
-DELAY_REDUCTION_FACTOR = 0.94  # Gradual delay reduction on success (تقليل أبطأ)
-BATCH_SIZE = 10     # Number of wallets to process per batch (مثبت على 10)
-BATCH_DELAY = 1.0   # Delay between batches in seconds (أطول للأمان)
+DELAY_REDUCTION_FACTOR = 0.95  # Gradual delay reduction on success (تعافي أسرع)
+BATCH_SIZE = 12     # Number of wallets to process per batch (محسن لـ 25 req/sec)
+BATCH_DELAY = 1.2   # Delay between batches in seconds (مخفض للسرعة)
 MAX_RETRIES = 2     # Maximum retries for failed requests
-MAX_RPC_CALLS_PER_SECOND = 20  # Maximum RPC calls per second (مخفض للاستقرار)
+MAX_RPC_CALLS_PER_SECOND = 25  # Maximum RPC calls per second
 
-# تحسين إضافي للأداء - وضع متدرج
+# تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
-SUCCESS_THRESHOLD_FOR_SPEEDUP = 4  # عدد النجاحات المتتالية لتسريع النظام (أبطأ للأمان)
+SUCCESS_THRESHOLD_FOR_SPEEDUP = 3  # عدد النجاحات المتتالية لتسريع النظام
 
 # Dust transaction filter - تقليل الحد الأدنى للحصول على إشعارات أكثر
 MIN_NOTIFICATION_AMOUNT = 0.0001  # SOL - حد أدنى أقل لضمان اكتشاف المعاملات الصغيرة
@@ -557,7 +557,7 @@ def format_timestamp(timestamp: int) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
-# Smart Rate Limiter Class with advanced adaptive delays and enhanced performance modes
+# Smart Rate Limiter Class with advanced adaptive delays
 class SmartRateLimiter:
     def __init__(self):
         self.current_delay = BASE_DELAY
@@ -567,13 +567,11 @@ class SmartRateLimiter:
         self.consecutive_successes = 0
         self.last_error_time = None
         self.last_429_time = None
-        self.performance_mode = 'normal'  # بدء بوضع normal متدرج وآمن
+        self.performance_mode = 'normal'  # normal, fast, careful
         self.recent_requests = []  # Track request timings
-        self.stable_cycles = 0  # عدد الدورات المستقرة
-        self.target_delay_reached = False  # هل وصلنا للهدف
 
     async def acquire(self):
-        """Smart rate limiting with adaptive delay and enhanced performance monitoring"""
+        """Smart rate limiting with adaptive delay and performance monitoring"""
         async with self.lock:
             current_time = asyncio.get_event_loop().time()
             
@@ -586,87 +584,42 @@ class SmartRateLimiter:
             # Calculate current request rate
             current_rate = len(self.recent_requests)
             
-            # Enhanced dynamic mode switching with stability tracking
-            if current_rate > MAX_RPC_CALLS_PER_SECOND * 0.85:  # Near limit (85%)
-                if self.performance_mode != 'careful':
-                    self.performance_mode = 'careful'
-                    self.stable_cycles = 0
-                    logger.warning(f"🔶 Switched to CAREFUL mode due to high request rate: {current_rate}")
-                self.current_delay = max(self.current_delay, 0.4)
-            elif current_rate < MAX_RPC_CALLS_PER_SECOND * 0.6:  # Safe zone (60%)
-                if self.performance_mode == 'careful':
-                    self.stable_cycles += 1
-                    if self.stable_cycles >= 3:  # 3 دورات مستقرة للانتقال من careful
-                        self.performance_mode = 'normal'
-                        logger.info(f"🔄 Switched to NORMAL mode after {self.stable_cycles} stable cycles")
-                elif self.performance_mode == 'normal' and self.stable_cycles >= 5:
-                    self.performance_mode = 'fast'
-                    logger.info(f"🚀 Switched to FAST mode after {self.stable_cycles} stable cycles")
+            # Dynamic delay adjustment based on request rate
+            if current_rate > MAX_RPC_CALLS_PER_SECOND * 0.9:  # Near limit
+                self.current_delay = max(self.current_delay, 0.5)
+                self.performance_mode = 'careful'
+            elif current_rate < MAX_RPC_CALLS_PER_SECOND * 0.7:  # Safe zone
+                self.performance_mode = 'fast'
             else:
-                if self.performance_mode not in ['normal', 'fast']:
-                    self.performance_mode = 'normal'
-                    self.stable_cycles = 0
+                self.performance_mode = 'normal'
             
             # Apply current delay
             if self.current_delay > 0:
                 await asyncio.sleep(self.current_delay)
 
     async def on_success(self):
-        """Called when request succeeds - progressive delay reduction toward 0.25s target"""
+        """Called when request succeeds - aggressive delay reduction"""
         async with self.lock:
             self.success_count += 1
             self.consecutive_successes += 1
-            self.stable_cycles += 1
             
-            # تحديد عتبة التسريع حسب الوضع
-            if self.performance_mode == 'fast':
-                reduction_threshold = SUCCESS_THRESHOLD_FOR_SPEEDUP
-            elif self.performance_mode == 'normal':
-                reduction_threshold = 3
-            else:  # careful
-                reduction_threshold = 6
+            # More aggressive delay reduction in fast mode
+            reduction_threshold = SUCCESS_THRESHOLD_FOR_SPEEDUP if self.performance_mode == 'fast' else 5
             
             if self.consecutive_successes >= reduction_threshold:
                 old_delay = self.current_delay
                 
-                # تقليل تدريجي نحو هدف 0.25s بحذر أكبر
-                target_delay = 0.25
-                
                 if self.performance_mode == 'fast':
-                    # تقليل متوسط في الوضع السريع (أبطأ من السابق)
-                    if self.current_delay > target_delay:
-                        # اقتراب تدريجي من الهدف
-                        reduction_factor = 0.92 if self.current_delay > 0.4 else 0.96
-                        self.current_delay = max(target_delay, self.current_delay * reduction_factor)
-                    else:
-                        # أقل من الهدف - تقليل بحذر
-                        self.current_delay = max(MIN_DELAY, self.current_delay * 0.98)
-                elif self.performance_mode == 'normal':
-                    # تقليل تدريجي نحو 0.25s في الوضع العادي
-                    if self.stable_cycles >= 15:
-                        # بعد استقرار طويل، تقليل نحو الهدف
-                        if self.current_delay > target_delay:
-                            reduction_factor = 0.96
-                            self.current_delay = max(target_delay, self.current_delay * reduction_factor)
-                        else:
-                            self.current_delay = max(MIN_DELAY, self.current_delay * DELAY_REDUCTION_FACTOR)
-                    else:
-                        # تقليل محافظ في البداية
-                        self.current_delay = max(MIN_DELAY * 1.5, self.current_delay * DELAY_REDUCTION_FACTOR)
-                else:  # careful mode
-                    # تقليل محافظ جداً
-                    self.current_delay = max(MIN_DELAY * 2, self.current_delay * 0.99)
+                    # Aggressive reduction when safe
+                    self.current_delay = max(MIN_DELAY, self.current_delay * 0.9)
+                else:
+                    # Normal reduction
+                    self.current_delay = max(MIN_DELAY, self.current_delay * DELAY_REDUCTION_FACTOR)
                 
                 self.consecutive_successes = 0
                 
-                # تتبع الوصول للهدف
-                if abs(self.current_delay - target_delay) < 0.05:
-                    if not self.target_delay_reached:
-                        self.target_delay_reached = True
-                        logger.info(f"🎯 Target delay {target_delay}s reached! Current: {self.current_delay:.3f}s")
-                
                 if old_delay != self.current_delay:
-                    logger.debug(f"🟢 {self.performance_mode.upper()}: {old_delay:.3f}s → {self.current_delay:.3f}s (target: {target_delay}s)")
+                    logger.debug(f"🟢 {self.performance_mode.upper()} mode: Reduced delay from {old_delay:.3f}s to {self.current_delay:.3f}s")
 
     async def on_rate_limit_error(self):
         """Called when 429 or rate limit error occurs - smart backoff"""
@@ -718,40 +671,16 @@ class SmartRateLimiter:
         }
 
     def get_optimal_batch_size(self) -> int:
-        """Calculate optimal batch size based on current performance (تدريجي نحو 12)"""
+        """Calculate optimal batch size based on current performance"""
         if not ADAPTIVE_BATCH_SIZING:
             return BATCH_SIZE
             
         if self.performance_mode == 'fast':
-            # في الوضع السريع: 12-14 محفظة (أقل من السابق)
-            base_size = 14 if self.target_delay_reached else 12
-            return min(base_size, 15)  # حد أقصى 15 للأمان
-        elif self.performance_mode == 'normal':
-            # في الوضع العادي: تدريج من 10 إلى 12
-            if self.stable_cycles >= 10:
-                return 12  # الهدف النهائي
-            elif self.stable_cycles >= 5:
-                return 11  # مرحلة وسطى
-            else:
-                return 10  # البداية الآمنة
-        else:  # careful mode
-            # في الوضع الحذر: 8-9 محافظ
-            return max(8, BATCH_SIZE - 2)
-    
-    def get_optimal_batch_delay(self) -> float:
-        """Calculate optimal delay between batches based on performance mode"""
-        if self.performance_mode == 'fast':
-            return 0.7 if self.target_delay_reached else 0.9  # أبطأ قليلاً للأمان
-        elif self.performance_mode == 'normal':
-            # تقليل تدريجي للتأخير بين الدفعات
-            if self.stable_cycles >= 15:
-                return 0.8  # هدف نهائي أسرع
-            elif self.stable_cycles >= 8:
-                return 0.9  # مرحلة وسطى
-            else:
-                return BATCH_DELAY  # البداية المحافظة
-        else:  # careful mode
-            return BATCH_DELAY * 1.5
+            return min(BATCH_SIZE + 4, 20)  # Increase batch size when safe
+        elif self.performance_mode == 'careful':
+            return max(BATCH_SIZE - 3, 6)   # Reduce batch size when careful
+        else:
+            return BATCH_SIZE
 
 # Solana Monitor
 class SolanaMonitor:
@@ -961,11 +890,15 @@ class SolanaMonitor:
                         total_successful += batch_result['successful_checks']
                         total_failed += batch_result['failed_checks']
                         
-                        # Dynamic delay between batches using optimized delays
+                        # Dynamic delay between batches based on performance mode
                         if i + current_batch_size < len(all_wallets):
-                            dynamic_delay = self.rate_limiter.get_optimal_batch_delay()
+                            dynamic_delay = BATCH_DELAY
+                            if self.rate_limiter.performance_mode == 'fast':
+                                dynamic_delay *= 0.7  # Faster in safe mode
+                            elif self.rate_limiter.performance_mode == 'careful':
+                                dynamic_delay *= 1.5  # Slower when careful
                             
-                            logger.debug(f"⏱️ Waiting {dynamic_delay:.1f}s before next batch (mode: {self.rate_limiter.performance_mode})...")
+                            logger.debug(f"⏱️ Waiting {dynamic_delay:.1f}s before next batch...")
                             await asyncio.sleep(dynamic_delay)
                     
                     # Calculate cycle time
@@ -978,18 +911,13 @@ class SolanaMonitor:
                     # Estimate total cycle time including polling interval
                     estimated_total_time = cycle_time + POLLING_INTERVAL
                     
-                    # تحديد حالة الوصول للهدف
-                    delay_status = "🎯" if limiter_stats.get('target_delay_reached', False) else "📈"
-                    target_progress = f"(→0.25s)" if limiter_stats['current_delay'] > 0.25 else "✓"
-                    
                     logger.info(
-                        f"🔄 Cycle #{cycle_count}: {cycle_time:.1f}s "
-                        f"(est. total: {estimated_total_time:.1f}s) | "
-                        f"✅{total_successful} ❌{total_failed} | "
-                        f"{delay_status} {limiter_stats['current_delay']:.3f}s {target_progress} | "
+                        f"🔄 Cycle #{cycle_count} completed in {cycle_time:.1f}s "
+                        f"(total with interval: {estimated_total_time:.1f}s) | "
+                        f"✅{total_successful} ❌{total_failed} checks | "
+                        f"Delay: {limiter_stats['current_delay']:.3f}s | "
                         f"Mode: {limiter_stats['performance_mode']} | "
-                        f"Batch: {current_batch_size} | "
-                        f"Stable: {limiter_stats.get('stable_cycles', 0)} | "
+                        f"Rate: {limiter_stats['recent_request_rate']}/10s | "
                         f"Success: {success_rate:.1f}%"
                     )
                     
