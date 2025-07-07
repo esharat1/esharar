@@ -54,19 +54,19 @@ SOLANA_RPC_URL2 = os.getenv("RPC_URL2")
 POLLING_INTERVAL = 3  # seconds - تحسين للوصول لهدف 60 ثانية
 MAX_MONITORED_WALLETS = 100000
 
-# Multi-RPC Configuration - نظام توزيع الطلبات بين providers متعددين
+# Multi-RPC Configuration - نظام توزيع الطلبات بين providers متعددين بالتساوي
 RPC_PROVIDERS = {
     'primary': {
         'url': SOLANA_RPC_URL,
-        'name': 'Alchemy',
+        'name': 'QuickNode1',
         'max_requests_per_second': 25,
-        'priority': 1
+        'priority': 1  # سيتم تجاهل الأولوية في التوزيع المتساوي
     },
     'secondary': {
         'url': SOLANA_RPC_URL2,
-        'name': 'QuickNode', 
-        'max_requests_per_second': 15,
-        'priority': 2
+        'name': 'QuickNode2', 
+        'max_requests_per_second': 20,  # زيادة الحد الأقصى لتوزيع أفضل
+        'priority': 1  # نفس الأولوية للتوزيع المتساوي
     }
 }
 
@@ -609,16 +609,15 @@ class MultiRPCRateLimiter:
                     'health_score': 100.0  # 0-100 score for provider health
                 }
         
-        logger.info(f"🔄 Initialized {len(self.providers)} RPC providers: {list(self.providers.keys())}")
+        logger.info(f"🔄 Initialized {len(self.providers)} RPC providers with equal load balancing: {list(self.providers.keys())}")
 
     def get_optimal_provider(self) -> str:
-        """Select the best RPC provider based on current load and health"""
+        """Select the best RPC provider with equal load balancing"""
         if not self.providers:
             return None
             
         current_time = asyncio.get_event_loop().time()
-        best_provider = None
-        best_score = -1
+        available_providers = []
         
         for provider_id, provider_data in self.providers.items():
             if not provider_data['is_available']:
@@ -636,15 +635,14 @@ class MultiRPCRateLimiter:
             current_load = len(provider_data['recent_requests']) / 10.0
             load_percentage = (current_load / config['max_requests_per_second']) * 100
             
-            # Calculate provider score based on:
-            # 1. Health score (0-100)
-            # 2. Current load (lower is better)
-            # 3. Priority (lower number = higher priority)
-            # 4. Recent errors
+            # Calculate provider score based on equal load balancing
+            # 1. Health score (0-100) - equal weight
+            # 2. Current load (lower is better) - main factor
+            # 3. NO priority bonus - equal treatment
+            # 4. Recent errors penalty
             
-            health_penalty = (100 - provider_data['health_score']) * 0.5
-            load_penalty = load_percentage * 0.3
-            priority_bonus = (3 - config['priority']) * 10  # Higher priority = bonus
+            health_penalty = (100 - provider_data['health_score']) * 0.3
+            load_penalty = load_percentage * 0.7  # Main factor for selection
             
             # Recent 429 errors penalty
             error_penalty = 0
@@ -653,18 +651,36 @@ class MultiRPCRateLimiter:
                 if time_since_429 < 30:  # Last 30 seconds
                     error_penalty = max(0, 30 - time_since_429) * 2
             
-            # Calculate final score
-            score = 100 + priority_bonus - health_penalty - load_penalty - error_penalty
+            # Calculate final score (higher is better)
+            score = 100 - health_penalty - load_penalty - error_penalty
             
-            # Additional bonus if provider is significantly under-utilized
-            if load_percentage < 50:
-                score += (50 - load_percentage) * 0.2
+            # Additional bonus for under-utilized providers
+            if load_percentage < 40:
+                score += (40 - load_percentage) * 0.5
             
-            if score > best_score:
-                best_score = score
-                best_provider = provider_id
+            available_providers.append({
+                'id': provider_id,
+                'score': score,
+                'load_percentage': load_percentage,
+                'health_score': provider_data['health_score']
+            })
         
-        return best_provider
+        if not available_providers:
+            return None
+        
+        # Sort by score (highest first)
+        available_providers.sort(key=lambda x: x['score'], reverse=True)
+        
+        # If top providers have similar scores (within 10 points), choose the one with lower load
+        top_provider = available_providers[0]
+        similar_providers = [p for p in available_providers if abs(p['score'] - top_provider['score']) <= 10]
+        
+        # Among similar providers, choose the one with lowest load
+        if len(similar_providers) > 1:
+            best_provider = min(similar_providers, key=lambda x: x['load_percentage'])
+            return best_provider['id']
+        
+        return top_provider['id']
 
     async def acquire(self, preferred_provider: str = None):
         """Smart rate limiting with provider selection"""
