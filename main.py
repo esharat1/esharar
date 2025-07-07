@@ -53,16 +53,16 @@ SOLANA_RPC_URL = os.getenv("RPC_URL")
 POLLING_INTERVAL = 5  # seconds - تحسين للحصول على إشعارات أسرع مع دقة عالية
 MAX_MONITORED_WALLETS = 100000
 
-# Smart Rate limiting configuration - وضع normal متدرج وآمن 
-BASE_DELAY = 0.35   # 350ms base delay - بداية محافظة (سيقل تدريجياً إلى 0.25)
+# Smart Rate limiting configuration - وضع محسن للاستقرار
+BASE_DELAY = 0.27   # 270ms base delay - مثبت للاستقرار
 MAX_DELAY = 4.0     # Maximum delay cap (4 seconds) - للحماية من الحمولة الزائدة
 MIN_DELAY = 0.08    # Minimum delay (80ms) - محافظ أكثر
 BACKOFF_MULTIPLIER = 1.3  # Exponential backoff multiplier (أقل عدوانية)
 DELAY_REDUCTION_FACTOR = 0.94  # Gradual delay reduction on success (تقليل أبطأ)
-BATCH_SIZE = 10     # Number of wallets to process per batch (بداية بـ 10، سيزيد لـ 12)
+BATCH_SIZE = 10     # Number of wallets to process per batch (مثبت على 10)
 BATCH_DELAY = 1.0   # Delay between batches in seconds (أطول للأمان)
 MAX_RETRIES = 2     # Maximum retries for failed requests
-MAX_RPC_CALLS_PER_SECOND = 25  # Maximum RPC calls per second (أقل للأمان)
+MAX_RPC_CALLS_PER_SECOND = 20  # Maximum RPC calls per second (مخفض للاستقرار)
 
 # تحسين إضافي للأداء - وضع متدرج
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
