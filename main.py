@@ -50,12 +50,19 @@ setup_logging()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 SOLANA_RPC_URL = os.getenv("RPC_URL")
-POLLING_INTERVAL = 8  # seconds - تحسين للحصول على إشعارات أسرع مع تقليل الضغط
+POLLING_INTERVAL = 5  # seconds - تحسين للحصول على إشعارات أسرع مع دقة عالية
 MAX_MONITORED_WALLETS = 100000
 
-# Rate limiting configuration for parallel processing - تحسين للسرعة
-MAX_RPC_CALLS_PER_SECOND = 50  # تقليل معدل الاستدعاءات لتجنب rate limiting
-RATE_LIMIT_WINDOW = 1.0  # 1 second window
+# Smart Rate limiting configuration - نظام ذكي للتحكم بمعدل الطلبات (محسن للدقة العالية)
+BASE_DELAY = 0.020  # 20ms base delay between requests (أسرع)
+MAX_DELAY = 5.0     # Maximum delay cap (5 seconds) - مخفض
+MIN_DELAY = 0.020   # Minimum delay (20ms)
+BACKOFF_MULTIPLIER = 1.5  # Exponential backoff multiplier (أقل عدوانية)
+DELAY_REDUCTION_FACTOR = 0.98  # Gradual delay reduction on success (أسرع تعافي)
+BATCH_SIZE = 8      # Number of wallets to process per batch (دفعات أكبر)
+BATCH_DELAY = 1.8   # Delay between batches in seconds (أقل بكثير: 1.8 ثانية)
+MAX_RETRIES = 2     # Maximum retries for failed requests (أقل للسرعة)
+MAX_RPC_CALLS_PER_SECOND = 25  # Maximum RPC calls per second (أعلى)
 
 # Dust transaction filter - تقليل الحد الأدنى للحصول على إشعارات أكثر
 MIN_NOTIFICATION_AMOUNT = 0.0001  # SOL - حد أدنى أقل لضمان اكتشاف المعاملات الصغيرة
@@ -79,7 +86,7 @@ MESSAGES = {
     "monitoring_status": "📊 حالة المراقبة:\n\n{status}",
     "wallet_already_monitored": "⚠️ هذه المحفظة مراقبة بالفعل.",
     "select_wallet_to_stop": "اختر المحفظة التي تريد إيقاف مراقبتها:",
-    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/list - عرض المحافظ المراقبة\n/r - عرض المحافظ التي بها رصيد SOL فقط\n/k - تصدير المفاتيح الخاصة\n/help - عرض هذه المساعدة\n\n👑 أوامر المشرف:\n/filter - تعديل الحد الأدنى للإشعارات\n/transfer - نقل جميع المحافظ لمستخدم محدد\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
+    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/list - عرض المحافظ المراقبة\n/r - عرض المحافظ التي بها رصيد SOL فقط\n/k - تصدير المفاتيح الخاصة\n/stats - عرض إحصائيات النظام والأداء\n/help - عرض هذه المساعدة\n\n👑 أوامر المشرف:\n/filter - تعديل الحد الأدنى للإشعارات\n/transfer - نقل جميع المحافظ لمستخدم محدد\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
 }
 
 
@@ -546,33 +553,68 @@ def format_timestamp(timestamp: int) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
-# Rate Limiter Class
-class RateLimiter:
-    def __init__(self, max_calls: int, time_window: float):
-        self.max_calls = max_calls
-        self.time_window = time_window
-        self.calls = []
+# Smart Rate Limiter Class with adaptive delays
+class SmartRateLimiter:
+    def __init__(self):
+        self.current_delay = BASE_DELAY
         self.lock = asyncio.Lock()
+        self.success_count = 0
+        self.fail_count = 0
+        self.consecutive_successes = 0
+        self.last_error_time = None
 
     async def acquire(self):
-        """Wait until we can make another RPC call"""
+        """Smart rate limiting with adaptive delay"""
         async with self.lock:
-            now = asyncio.get_event_loop().time()
+            # Apply current delay
+            if self.current_delay > 0:
+                await asyncio.sleep(self.current_delay)
 
-            # Remove old calls outside the time window
-            self.calls = [call_time for call_time in self.calls if now - call_time < self.time_window]
+    async def on_success(self):
+        """Called when request succeeds - gradually reduce delay"""
+        async with self.lock:
+            self.success_count += 1
+            self.consecutive_successes += 1
+            
+            # Gradually reduce delay on consecutive successes
+            if self.consecutive_successes >= 5:
+                self.current_delay = max(MIN_DELAY, self.current_delay * DELAY_REDUCTION_FACTOR)
+                self.consecutive_successes = 0
+                logger.debug(f"🟢 Reduced delay to {self.current_delay:.3f}s after consecutive successes")
 
-            # If we're at the limit, wait until we can make another call
-            if len(self.calls) >= self.max_calls:
-                oldest_call = min(self.calls)
-                wait_time = self.time_window - (now - oldest_call)
-                if wait_time > 0:
-                    await asyncio.sleep(wait_time)
-                    # Recursive call to check again
-                    return await self.acquire()
+    async def on_rate_limit_error(self):
+        """Called when 429 or rate limit error occurs - exponential backoff"""
+        async with self.lock:
+            self.fail_count += 1
+            self.consecutive_successes = 0
+            self.last_error_time = asyncio.get_event_loop().time()
+            
+            # Exponential backoff
+            old_delay = self.current_delay
+            self.current_delay = min(MAX_DELAY, self.current_delay * BACKOFF_MULTIPLIER)
+            
+            logger.warning(f"🔴 Rate limit hit! Increased delay from {old_delay:.3f}s to {self.current_delay:.3f}s")
 
-            # Record this call
-            self.calls.append(now)
+    async def on_network_error(self):
+        """Called when network/temporary error occurs"""
+        async with self.lock:
+            self.fail_count += 1
+            self.consecutive_successes = 0
+            
+            # Moderate increase for network errors
+            old_delay = self.current_delay
+            self.current_delay = min(MAX_DELAY, self.current_delay * 1.5)
+            
+            logger.debug(f"🟡 Network error! Increased delay from {old_delay:.3f}s to {self.current_delay:.3f}s")
+
+    def get_stats(self) -> dict:
+        """Get current rate limiter statistics"""
+        return {
+            'current_delay': self.current_delay,
+            'success_count': self.success_count,
+            'fail_count': self.fail_count,
+            'consecutive_successes': self.consecutive_successes
+        }
 
 # Solana Monitor
 class SolanaMonitor:
@@ -580,7 +622,7 @@ class SolanaMonitor:
         self.session = None
         self.monitoring_tasks: Dict[str, any] = {}
         self.db_manager = DatabaseManager()
-        self.rate_limiter = RateLimiter(MAX_RPC_CALLS_PER_SECOND, RATE_LIMIT_WINDOW)
+        self.rate_limiter = SmartRateLimiter()
         self.wallet_rotation_index = 0  # For rotating wallet checks
 
     async def start_session(self):
@@ -594,41 +636,86 @@ class SolanaMonitor:
             await self.session.close()
             self.session = None
 
-    async def make_rpc_call(self, payload: dict, max_retries: int = 2):
-        """Make rate-limited RPC call with retry logic - محسّن للسرعة"""
+    async def make_rpc_call(self, payload: dict, max_retries: int = MAX_RETRIES):
+        """Smart RPC call with adaptive rate limiting and intelligent retry logic"""
         for attempt in range(max_retries):
             try:
-                # Wait for rate limit
+                # Apply smart rate limiting
                 await self.rate_limiter.acquire()
 
                 if not self.session:
                     await self.start_session()
 
-                # تقليل timeout لاستجابة أسرع
-                async with self.session.post(SOLANA_RPC_URL, json=payload, timeout=15) as response:
+                # Make the request with timeout
+                async with self.session.post(SOLANA_RPC_URL, json=payload, timeout=20) as response:
                     if response.status == 200:
                         data = await response.json()
+                        # Notify rate limiter of success
+                        await self.rate_limiter.on_success()
                         return data
-                    elif response.status == 429:  # Too Many Requests
-                        wait_time = min(2 ** attempt, 30)  # Exponential backoff, max 30s
-                        logger.warning(f"Rate limited, waiting {wait_time}s before retry {attempt + 1}")
-                        await asyncio.sleep(wait_time)
-                        continue
+                    
+                    elif response.status == 429:  # Rate limit hit
+                        await self.rate_limiter.on_rate_limit_error()
+                        
+                        if attempt < max_retries - 1:
+                            # Additional wait for rate limit errors
+                            extra_wait = min(5.0 * (attempt + 1), 30.0)
+                            logger.warning(f"Rate limited (429), waiting extra {extra_wait:.1f}s before retry {attempt + 1}")
+                            await asyncio.sleep(extra_wait)
+                            continue
+                        else:
+                            logger.error(f"Rate limit exceeded after {max_retries} attempts")
+                            return None
+                    
+                    elif response.status in [500, 502, 503, 504]:  # Server errors
+                        await self.rate_limiter.on_network_error()
+                        
+                        if attempt < max_retries - 1:
+                            wait_time = min(2.0 ** attempt, 15.0)
+                            logger.warning(f"Server error {response.status}, waiting {wait_time:.1f}s before retry {attempt + 1}")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            logger.error(f"Server error {response.status} after {max_retries} attempts")
+                            return None
+                    
                     else:
-                        logger.error(f"RPC call failed with status {response.status}")
+                        logger.error(f"Unexpected HTTP status {response.status}")
                         return None
-            except asyncio.TimeoutError:
-                logger.warning(f"RPC call timeout, attempt {attempt + 1}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                    continue
-            except Exception as e:
-                logger.error(f"RPC call error on attempt {attempt + 1}: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)
-                    continue
 
-        logger.error(f"All RPC call attempts failed for payload: {payload.get('method', 'unknown')}")
+            except asyncio.TimeoutError:
+                await self.rate_limiter.on_network_error()
+                
+                if attempt < max_retries - 1:
+                    wait_time = min(3.0 * (attempt + 1), 20.0)
+                    logger.warning(f"Request timeout, waiting {wait_time:.1f}s before retry {attempt + 1}")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Request timeout after {max_retries} attempts")
+                    return None
+
+            except aiohttp.ClientError as e:
+                await self.rate_limiter.on_network_error()
+                
+                if attempt < max_retries - 1:
+                    wait_time = min(2.0 ** attempt, 10.0)
+                    logger.warning(f"Network error: {e}, waiting {wait_time:.1f}s before retry {attempt + 1}")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"Network error after {max_retries} attempts: {e}")
+                    return None
+
+            except Exception as e:
+                logger.error(f"Unexpected error on attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1.0)
+                    continue
+                else:
+                    return None
+
+        logger.error(f"All {max_retries} RPC call attempts failed for method: {payload.get('method', 'unknown')}")
         return None
 
     async def add_wallet(self, private_key_str: str, chat_id: int, callback_func) -> tuple[bool, str]:
@@ -698,31 +785,44 @@ class SolanaMonitor:
                         await asyncio.sleep(POLLING_INTERVAL)
                         continue
 
-                    logger.debug(f"🔄 بدء مراقبة جميع المحافظ بالتوازي ({len(all_wallets)} محفظة)")
+                    logger.debug(f"🔄 Starting smart monitoring cycle for {len(all_wallets)} wallets")
 
-                    # مراقبة جميع المحافظ بالتوازي مع دفعات محسّنة للسرعة
-                    batch_size = 10  # دفعات أصغر لتجنب rate limiting
-                    tasks = []
-
-                    for i in range(0, len(all_wallets), batch_size):
-                        batch = all_wallets[i:i + batch_size]
-                        
-                        # إنشاء مهمة لكل دفعة
-                        batch_task = asyncio.create_task(
-                            self.process_wallet_batch(batch, i // batch_size + 1, len(all_wallets))
-                        )
-                        tasks.append(batch_task)
-
-                        # تأخير أطول بين الدفعات لتجنب rate limiting
-                        if i + batch_size < len(all_wallets):
-                            await asyncio.sleep(1.0)
-
-                    # انتظار اكتمال جميع الدفعات بالتوازي
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    # Process wallets in smart batches with adaptive delays
+                    batch_results = []
+                    total_successful = 0
+                    total_failed = 0
                     
-                    # تسجيل النتائج
-                    successful_batches = sum(1 for result in results if not isinstance(result, Exception))
-                    logger.debug(f"✅ اكتمل فحص {successful_batches}/{len(tasks)} دفعة بنجاح")
+                    # Calculate number of batches
+                    num_batches = (len(all_wallets) + BATCH_SIZE - 1) // BATCH_SIZE
+                    
+                    for i in range(0, len(all_wallets), BATCH_SIZE):
+                        batch = all_wallets[i:i + BATCH_SIZE]
+                        batch_number = i // BATCH_SIZE + 1
+                        
+                        logger.debug(f"🎯 Processing batch {batch_number}/{num_batches}")
+                        
+                        # Process this batch
+                        batch_result = await self.process_wallet_batch(batch, batch_number, len(all_wallets))
+                        batch_results.append(batch_result)
+                        
+                        total_successful += batch_result['successful_checks']
+                        total_failed += batch_result['failed_checks']
+                        
+                        # Wait between batches (except for the last batch)
+                        if i + BATCH_SIZE < len(all_wallets):
+                            logger.debug(f"⏱️ Waiting {BATCH_DELAY}s before next batch...")
+                            await asyncio.sleep(BATCH_DELAY)
+                    
+                    # Log cycle summary with rate limiter stats
+                    limiter_stats = self.rate_limiter.get_stats()
+                    
+                    logger.info(
+                        f"🔄 Monitoring cycle completed: "
+                        f"✅{total_successful} ❌{total_failed} checks "
+                        f"across {num_batches} batches "
+                        f"(current delay: {limiter_stats['current_delay']:.3f}s, "
+                        f"success rate: {limiter_stats['success_count']}/{limiter_stats['success_count'] + limiter_stats['fail_count']})"
+                    )
 
                     # Wait for next polling interval
                     await asyncio.sleep(POLLING_INTERVAL)
@@ -743,31 +843,52 @@ class SolanaMonitor:
             }
 
     async def process_wallet_batch(self, wallet_batch: List[dict], batch_number: int, total_wallets: int):
-        """Process a batch of wallets in parallel with rate limiting"""
+        """Process a batch of wallets with smart rate limiting and error handling"""
+        batch_start_time = asyncio.get_event_loop().time()
+        successful_checks = 0
+        failed_checks = 0
+        
         try:
-            # معالجة المحافظ تدريجياً بدلاً من دفعة واحدة
+            logger.debug(f"📦 Starting batch {batch_number}: {len(wallet_batch)} wallets")
+            
+            # Process wallets in the batch sequentially with smart delays
             for i, wallet_info in enumerate(wallet_batch):
                 try:
+                    wallet_start_time = asyncio.get_event_loop().time()
+                    
+                    # Check transactions for this wallet
                     await self.check_transactions_optimized(wallet_info['wallet_address'])
-                    # تأخير قصير بين كل محفظة
-                    if i < len(wallet_batch) - 1:
-                        await asyncio.sleep(0.1)
+                    
+                    successful_checks += 1
+                    
+                    wallet_duration = asyncio.get_event_loop().time() - wallet_start_time
+                    logger.debug(f"  ✅ Wallet {i+1}/{len(wallet_batch)} checked in {wallet_duration:.2f}s")
+                    
                 except Exception as e:
-                    logger.debug(f"Error processing wallet in batch {batch_number}: {e}")
+                    failed_checks += 1
+                    logger.debug(f"  ❌ Error processing wallet {i+1}/{len(wallet_batch)}: {e}")
             
-            logger.debug(f"📦 دفعة {batch_number}: تم فحص {len(wallet_batch)} محفظة")
+            batch_duration = asyncio.get_event_loop().time() - batch_start_time
+            
+            # Get rate limiter stats
+            limiter_stats = self.rate_limiter.get_stats()
+            
+            logger.debug(
+                f"📦 Batch {batch_number} completed: "
+                f"✅{successful_checks} ❌{failed_checks} "
+                f"in {batch_duration:.2f}s "
+                f"(delay: {limiter_stats['current_delay']:.3f}s)"
+            )
             
         except Exception as e:
-            logger.error(f"Error processing wallet batch {batch_number}: {e}")
-
-        # Start global monitoring task
-        if 'global_monitor' not in self.monitoring_tasks:
-            task = asyncio.create_task(global_monitor_task())
-            self.monitoring_tasks['global_monitor'] = {
-                'task': task,
-                'callback': callback_func,
-                'type': 'global'
-            }
+            logger.error(f"Critical error in batch {batch_number}: {e}")
+            
+        return {
+            'batch_number': batch_number,
+            'successful_checks': successful_checks,
+            'failed_checks': failed_checks,
+            'duration': asyncio.get_event_loop().time() - batch_start_time
+        }
 
     async def start_monitoring_wallet(self, wallet_address: str, chat_id: int = None, callback_func=None):
         """Start monitoring for a specific wallet (now uses global monitoring)"""
@@ -987,7 +1108,7 @@ class SolanaMonitor:
             logger.error(traceback.format_exc())
 
     async def get_wallet_balance(self, wallet_address: str) -> float:
-        """Get SOL balance for a wallet address with rate limiting"""
+        """Get SOL balance for a wallet address with smart rate limiting"""
         try:
             payload = {
                 "jsonrpc": "2.0",
@@ -996,8 +1117,8 @@ class SolanaMonitor:
                 "params": [wallet_address]
             }
 
-            # استخدام timeout أقصر للفحص السريع
-            data = await self.make_rpc_call(payload, max_retries=1)  # تقليل المحاولات
+            # Use smart rate limiting with retries
+            data = await self.make_rpc_call(payload, max_retries=2)
             if data and 'result' in data and 'value' in data['result']:
                 lamports = data['result']['value']
                 sol_balance = lamports / 1_000_000_000  # Convert to SOL
@@ -1601,6 +1722,50 @@ class SolanaWalletBot:
         except Exception as e:
             await update.message.reply_text(f"❌ خطأ في التشخيص: {str(e)}")
 
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /stats command - show rate limiter and monitoring statistics"""
+        chat_id = update.effective_chat.id
+        
+        try:
+            # Get rate limiter stats
+            limiter_stats = self.monitor.rate_limiter.get_stats()
+            
+            # Get wallet and user counts
+            monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
+            all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+            users_count = await self.monitor.db_manager.get_users_count()
+            
+            # Calculate success rate
+            total_requests = limiter_stats['success_count'] + limiter_stats['fail_count']
+            success_rate = (limiter_stats['success_count'] / total_requests * 100) if total_requests > 0 else 0
+            
+            stats_message = f"📊 إحصائيات النظام:\n\n"
+            stats_message += f"🏦 البيانات:\n"
+            stats_message += f"• المحافظ الخاصة بك: {len(monitored_wallets)}\n"
+            stats_message += f"• إجمالي المحافظ: {len(all_wallets)}\n"
+            stats_message += f"• المستخدمون النشطون: {users_count}\n\n"
+            
+            stats_message += f"⚡ أداء النظام:\n"
+            stats_message += f"• التأخير الحالي: {limiter_stats['current_delay']:.3f} ثانية\n"
+            stats_message += f"• النجاحات المتتالية: {limiter_stats['consecutive_successes']}\n"
+            stats_message += f"• معدل النجاح: {success_rate:.1f}%\n\n"
+            
+            stats_message += f"📈 إحصائيات الطلبات:\n"
+            stats_message += f"• الطلبات الناجحة: {limiter_stats['success_count']}\n"
+            stats_message += f"• الطلبات الفاشلة: {limiter_stats['fail_count']}\n"
+            stats_message += f"• إجمالي الطلبات: {total_requests}\n\n"
+            
+            stats_message += f"🔧 إعدادات النظام:\n"
+            stats_message += f"• الحد الأدنى للتأخير: {MIN_DELAY:.3f}s\n"
+            stats_message += f"• الحد الأقصى للتأخير: {MAX_DELAY:.1f}s\n"
+            stats_message += f"• حجم الدفعة: {BATCH_SIZE} محافظ\n"
+            stats_message += f"• التأخير بين الدفعات: {BATCH_DELAY:.1f}s"
+            
+            await update.message.reply_text(stats_message)
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ خطأ في جلب الإحصائيات: {str(e)}")
+
     async def transfer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /transfer command - admin only: transfer all wallets to specified user"""
         chat_id = update.effective_chat.id
@@ -2150,6 +2315,7 @@ class SolanaWalletBot:
         self.application.add_handler(CommandHandler("filter", self.filter_command))
         self.application.add_handler(CommandHandler("transfer", self.transfer_command))
         self.application.add_handler(CommandHandler("debug", self.debug_command))
+        self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         self.application.add_error_handler(self.error_handler)
@@ -2248,10 +2414,10 @@ class SolanaWalletBot:
 
 
     async def health_monitor(self):
-        """Monitor bot health and restart if needed - محسّن للمراقبة السريعة"""
+        """Monitor bot health with rate limiter statistics"""
         while True:
             try:
-                await asyncio.sleep(60)  # فحص كل دقيقة لضمان المراقبة المستمرة
+                await asyncio.sleep(60)  # Check every minute
 
                 # Check if monitoring tasks are still running
                 active_tasks = sum(1 for task_info in self.monitor.monitoring_tasks.values() 
@@ -2259,7 +2425,19 @@ class SolanaWalletBot:
                                     task_info.get('task') and 
                                     not task_info['task'].done())
 
-                logger.debug(f"🩺 Health check: {active_tasks} active monitoring tasks")
+                # Get rate limiter statistics
+                limiter_stats = self.monitor.rate_limiter.get_stats()
+                
+                # Get wallet count
+                all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+                
+                logger.info(
+                    f"🩺 Health check: "
+                    f"{active_tasks} active tasks, "
+                    f"{len(all_wallets)} wallets monitored, "
+                    f"Rate limiter: {limiter_stats['current_delay']:.3f}s delay, "
+                    f"Success rate: {limiter_stats['success_count']}/{limiter_stats['success_count'] + limiter_stats['fail_count']}"
+                )
 
                 # Restart global monitoring if it died
                 if 'global_monitor' not in self.monitor.monitoring_tasks or \
@@ -2267,8 +2445,7 @@ class SolanaWalletBot:
                     logger.warning("🔄 Restarting global monitoring task")
                     await self.monitor.start_global_monitoring(self.send_transaction_notification)
 
-                # فحص إضافي لضمان عمل المراقبة
-                all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+                # Additional check to ensure monitoring is working
                 if len(all_wallets) > 0 and active_tasks == 0:
                     logger.error("🚨 No monitoring tasks running despite having wallets! Restarting...")
                     await self.monitor.start_global_monitoring(self.send_transaction_notification)
