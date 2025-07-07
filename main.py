@@ -760,15 +760,24 @@ class SolanaMonitor:
             # Stop monitoring task
             task_key = f"{wallet_address}_{chat_id}"
             if task_key in self.monitoring_tasks:
-                if isinstance(self.monitoring_tasks[task_key], dict):
-                    self.monitoring_tasks[task_key]['task'].cancel()
+                task_info = self.monitoring_tasks[task_key]
+                if isinstance(task_info, dict):
+                    # Check if 'task' key exists in the dictionary
+                    if 'task' in task_info and task_info['task']:
+                        task_info['task'].cancel()
+                    else:
+                        logger.warning(f"Task key missing or None for wallet {wallet_address}")
                 else:
-                    self.monitoring_tasks[task_key].cancel()
+                    # Direct task object
+                    task_info.cancel()
                 del self.monitoring_tasks[task_key]
 
             logger.info(f"Stopped monitoring wallet: {wallet_address} for chat: {chat_id}")
             return True
 
+        except KeyError as e:
+            logger.error(f"Error removing wallet - key not found: {e}")
+            return False
         except Exception as e:
             logger.error(f"Error removing wallet: {e}")
             return False
