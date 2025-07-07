@@ -53,16 +53,20 @@ SOLANA_RPC_URL = os.getenv("RPC_URL")
 POLLING_INTERVAL = 5  # seconds - تحسين للحصول على إشعارات أسرع مع دقة عالية
 MAX_MONITORED_WALLETS = 100000
 
-# Smart Rate limiting configuration - نظام ذكي للتحكم بمعدل الطلبات (محسن للاستقرار)
-BASE_DELAY = 0.3    # 300ms base delay between requests (مستقر)
-MAX_DELAY = 5.0     # Maximum delay cap (5 seconds) - مخفض
-MIN_DELAY = 0.1     # Minimum delay (100ms)
-BACKOFF_MULTIPLIER = 1.5  # Exponential backoff multiplier (أقل عدوانية)
-DELAY_REDUCTION_FACTOR = 0.98  # Gradual delay reduction on success (أسرع تعافي)
-BATCH_SIZE = 8      # Number of wallets to process per batch (دفعات أكبر)
-BATCH_DELAY = 1.8   # Delay between batches in seconds (أقل بكثير: 1.8 ثانية)
-MAX_RETRIES = 2     # Maximum retries for failed requests (أقل للسرعة)
-MAX_RPC_CALLS_PER_SECOND = 25  # Maximum RPC calls per second (أعلى)
+# Smart Rate limiting configuration - نظام محسن للأداء العالي مع 250+ محفظة
+BASE_DELAY = 0.25   # 250ms base delay between requests (محسن للأداء)
+MAX_DELAY = 3.0     # Maximum delay cap (3 seconds) - مخفض أكثر
+MIN_DELAY = 0.08    # Minimum delay (80ms) - أقل للسرعة
+BACKOFF_MULTIPLIER = 1.3  # Exponential backoff multiplier (أقل عدوانية)
+DELAY_REDUCTION_FACTOR = 0.95  # Gradual delay reduction on success (تعافي أسرع)
+BATCH_SIZE = 12     # Number of wallets to process per batch (محسن لـ 25 req/sec)
+BATCH_DELAY = 1.2   # Delay between batches in seconds (مخفض للسرعة)
+MAX_RETRIES = 2     # Maximum retries for failed requests
+MAX_RPC_CALLS_PER_SECOND = 25  # Maximum RPC calls per second
+
+# تحسين إضافي للأداء
+ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
+SUCCESS_THRESHOLD_FOR_SPEEDUP = 3  # عدد النجاحات المتتالية لتسريع النظام
 
 # Dust transaction filter - تقليل الحد الأدنى للحصول على إشعارات أكثر
 MIN_NOTIFICATION_AMOUNT = 0.0001  # SOL - حد أدنى أقل لضمان اكتشاف المعاملات الصغيرة
@@ -553,7 +557,7 @@ def format_timestamp(timestamp: int) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
-# Smart Rate Limiter Class with adaptive delays
+# Smart Rate Limiter Class with advanced adaptive delays
 class SmartRateLimiter:
     def __init__(self):
         self.current_delay = BASE_DELAY
@@ -562,38 +566,82 @@ class SmartRateLimiter:
         self.fail_count = 0
         self.consecutive_successes = 0
         self.last_error_time = None
+        self.last_429_time = None
+        self.performance_mode = 'normal'  # normal, fast, careful
+        self.recent_requests = []  # Track request timings
 
     async def acquire(self):
-        """Smart rate limiting with adaptive delay"""
+        """Smart rate limiting with adaptive delay and performance monitoring"""
         async with self.lock:
+            current_time = asyncio.get_event_loop().time()
+            
+            # Clean old request times (keep only last 60 seconds)
+            self.recent_requests = [t for t in self.recent_requests if current_time - t < 60]
+            
+            # Add current request time
+            self.recent_requests.append(current_time)
+            
+            # Calculate current request rate
+            current_rate = len(self.recent_requests)
+            
+            # Dynamic delay adjustment based on request rate
+            if current_rate > MAX_RPC_CALLS_PER_SECOND * 0.9:  # Near limit
+                self.current_delay = max(self.current_delay, 0.5)
+                self.performance_mode = 'careful'
+            elif current_rate < MAX_RPC_CALLS_PER_SECOND * 0.7:  # Safe zone
+                self.performance_mode = 'fast'
+            else:
+                self.performance_mode = 'normal'
+            
             # Apply current delay
             if self.current_delay > 0:
                 await asyncio.sleep(self.current_delay)
 
     async def on_success(self):
-        """Called when request succeeds - gradually reduce delay"""
+        """Called when request succeeds - aggressive delay reduction"""
         async with self.lock:
             self.success_count += 1
             self.consecutive_successes += 1
             
-            # Gradually reduce delay on consecutive successes
-            if self.consecutive_successes >= 5:
-                self.current_delay = max(MIN_DELAY, self.current_delay * DELAY_REDUCTION_FACTOR)
+            # More aggressive delay reduction in fast mode
+            reduction_threshold = SUCCESS_THRESHOLD_FOR_SPEEDUP if self.performance_mode == 'fast' else 5
+            
+            if self.consecutive_successes >= reduction_threshold:
+                old_delay = self.current_delay
+                
+                if self.performance_mode == 'fast':
+                    # Aggressive reduction when safe
+                    self.current_delay = max(MIN_DELAY, self.current_delay * 0.9)
+                else:
+                    # Normal reduction
+                    self.current_delay = max(MIN_DELAY, self.current_delay * DELAY_REDUCTION_FACTOR)
+                
                 self.consecutive_successes = 0
-                logger.debug(f"🟢 Reduced delay to {self.current_delay:.3f}s after consecutive successes")
+                
+                if old_delay != self.current_delay:
+                    logger.debug(f"🟢 {self.performance_mode.upper()} mode: Reduced delay from {old_delay:.3f}s to {self.current_delay:.3f}s")
 
     async def on_rate_limit_error(self):
-        """Called when 429 or rate limit error occurs - exponential backoff"""
+        """Called when 429 or rate limit error occurs - smart backoff"""
         async with self.lock:
             self.fail_count += 1
             self.consecutive_successes = 0
-            self.last_error_time = asyncio.get_event_loop().time()
+            current_time = asyncio.get_event_loop().time()
+            self.last_error_time = current_time
+            self.last_429_time = current_time
             
-            # Exponential backoff
+            # Smart backoff based on how recently we hit 429
             old_delay = self.current_delay
-            self.current_delay = min(MAX_DELAY, self.current_delay * BACKOFF_MULTIPLIER)
             
-            logger.warning(f"🔴 Rate limit hit! Increased delay from {old_delay:.3f}s to {self.current_delay:.3f}s")
+            if self.last_429_time and current_time - self.last_429_time < 30:
+                # Recent 429 errors - be more careful
+                self.current_delay = min(MAX_DELAY, self.current_delay * 1.8)
+                self.performance_mode = 'careful'
+            else:
+                # First 429 in a while - moderate increase
+                self.current_delay = min(MAX_DELAY, self.current_delay * BACKOFF_MULTIPLIER)
+            
+            logger.warning(f"🔴 Rate limit hit! Increased delay from {old_delay:.3f}s to {self.current_delay:.3f}s (mode: {self.performance_mode})")
 
     async def on_network_error(self):
         """Called when network/temporary error occurs"""
@@ -601,20 +649,38 @@ class SmartRateLimiter:
             self.fail_count += 1
             self.consecutive_successes = 0
             
-            # Moderate increase for network errors
+            # Light increase for network errors
             old_delay = self.current_delay
-            self.current_delay = min(MAX_DELAY, self.current_delay * 1.5)
+            self.current_delay = min(MAX_DELAY, self.current_delay * 1.2)
             
             logger.debug(f"🟡 Network error! Increased delay from {old_delay:.3f}s to {self.current_delay:.3f}s")
 
     def get_stats(self) -> dict:
         """Get current rate limiter statistics"""
+        current_time = asyncio.get_event_loop().time()
+        recent_rate = len([t for t in self.recent_requests if current_time - t < 10])  # Last 10 seconds
+        
         return {
             'current_delay': self.current_delay,
             'success_count': self.success_count,
             'fail_count': self.fail_count,
-            'consecutive_successes': self.consecutive_successes
+            'consecutive_successes': self.consecutive_successes,
+            'performance_mode': self.performance_mode,
+            'recent_request_rate': recent_rate,
+            'time_since_last_429': current_time - self.last_429_time if self.last_429_time else None
         }
+
+    def get_optimal_batch_size(self) -> int:
+        """Calculate optimal batch size based on current performance"""
+        if not ADAPTIVE_BATCH_SIZING:
+            return BATCH_SIZE
+            
+        if self.performance_mode == 'fast':
+            return min(BATCH_SIZE + 4, 20)  # Increase batch size when safe
+        elif self.performance_mode == 'careful':
+            return max(BATCH_SIZE - 3, 6)   # Reduce batch size when careful
+        else:
+            return BATCH_SIZE
 
 # Solana Monitor
 class SolanaMonitor:
@@ -785,8 +851,12 @@ class SolanaMonitor:
     async def start_global_monitoring(self, callback_func=None):
         """Start parallel monitoring for ALL wallets simultaneously"""
         async def global_monitor_task():
+            cycle_count = 0
             while True:
                 try:
+                    cycle_start_time = asyncio.get_event_loop().time()
+                    cycle_count += 1
+                    
                     # Get all active wallets
                     all_wallets = await self.db_manager.get_all_monitored_wallets()
 
@@ -794,21 +864,24 @@ class SolanaMonitor:
                         await asyncio.sleep(POLLING_INTERVAL)
                         continue
 
-                    logger.debug(f"🔄 Starting smart monitoring cycle for {len(all_wallets)} wallets")
+                    logger.debug(f"🔄 Starting cycle #{cycle_count} for {len(all_wallets)} wallets")
 
-                    # Process wallets in smart batches with adaptive delays
+                    # Process wallets in adaptive batches
                     batch_results = []
                     total_successful = 0
                     total_failed = 0
                     
-                    # Calculate number of batches
-                    num_batches = (len(all_wallets) + BATCH_SIZE - 1) // BATCH_SIZE
+                    # Get optimal batch size from rate limiter
+                    current_batch_size = self.rate_limiter.get_optimal_batch_size()
+                    num_batches = (len(all_wallets) + current_batch_size - 1) // current_batch_size
                     
-                    for i in range(0, len(all_wallets), BATCH_SIZE):
-                        batch = all_wallets[i:i + BATCH_SIZE]
-                        batch_number = i // BATCH_SIZE + 1
+                    logger.debug(f"📊 Using adaptive batch size: {current_batch_size} (mode: {self.rate_limiter.performance_mode})")
+                    
+                    for i in range(0, len(all_wallets), current_batch_size):
+                        batch = all_wallets[i:i + current_batch_size]
+                        batch_number = i // current_batch_size + 1
                         
-                        logger.debug(f"🎯 Processing batch {batch_number}/{num_batches}")
+                        logger.debug(f"🎯 Processing batch {batch_number}/{num_batches} ({len(batch)} wallets)")
                         
                         # Process this batch
                         batch_result = await self.process_wallet_batch(batch, batch_number, len(all_wallets))
@@ -817,21 +890,42 @@ class SolanaMonitor:
                         total_successful += batch_result['successful_checks']
                         total_failed += batch_result['failed_checks']
                         
-                        # Wait between batches (except for the last batch)
-                        if i + BATCH_SIZE < len(all_wallets):
-                            logger.debug(f"⏱️ Waiting {BATCH_DELAY}s before next batch...")
-                            await asyncio.sleep(BATCH_DELAY)
+                        # Dynamic delay between batches based on performance mode
+                        if i + current_batch_size < len(all_wallets):
+                            dynamic_delay = BATCH_DELAY
+                            if self.rate_limiter.performance_mode == 'fast':
+                                dynamic_delay *= 0.7  # Faster in safe mode
+                            elif self.rate_limiter.performance_mode == 'careful':
+                                dynamic_delay *= 1.5  # Slower when careful
+                            
+                            logger.debug(f"⏱️ Waiting {dynamic_delay:.1f}s before next batch...")
+                            await asyncio.sleep(dynamic_delay)
                     
-                    # Log cycle summary with rate limiter stats
+                    # Calculate cycle time
+                    cycle_time = asyncio.get_event_loop().time() - cycle_start_time
+                    
+                    # Log cycle summary with detailed performance stats
                     limiter_stats = self.rate_limiter.get_stats()
+                    success_rate = (limiter_stats['success_count'] / (limiter_stats['success_count'] + limiter_stats['fail_count']) * 100) if (limiter_stats['success_count'] + limiter_stats['fail_count']) > 0 else 0
+                    
+                    # Estimate total cycle time including polling interval
+                    estimated_total_time = cycle_time + POLLING_INTERVAL
                     
                     logger.info(
-                        f"🔄 Monitoring cycle completed: "
-                        f"✅{total_successful} ❌{total_failed} checks "
-                        f"across {num_batches} batches "
-                        f"(current delay: {limiter_stats['current_delay']:.3f}s, "
-                        f"success rate: {limiter_stats['success_count']}/{limiter_stats['success_count'] + limiter_stats['fail_count']})"
+                        f"🔄 Cycle #{cycle_count} completed in {cycle_time:.1f}s "
+                        f"(total with interval: {estimated_total_time:.1f}s) | "
+                        f"✅{total_successful} ❌{total_failed} checks | "
+                        f"Delay: {limiter_stats['current_delay']:.3f}s | "
+                        f"Mode: {limiter_stats['performance_mode']} | "
+                        f"Rate: {limiter_stats['recent_request_rate']}/10s | "
+                        f"Success: {success_rate:.1f}%"
                     )
+                    
+                    # Performance warnings
+                    if cycle_time > 90:  # More than 1.5 minutes
+                        logger.warning(f"⚠️ Long cycle time: {cycle_time:.1f}s - consider optimization")
+                    elif cycle_time < 30:  # Less than 30 seconds
+                        logger.info(f"🚀 Fast cycle time: {cycle_time:.1f}s - excellent performance!")
 
                     # Wait for next polling interval
                     await asyncio.sleep(POLLING_INTERVAL)
@@ -852,13 +946,14 @@ class SolanaMonitor:
             }
 
     async def process_wallet_batch(self, wallet_batch: List[dict], batch_number: int, total_wallets: int):
-        """Process a batch of wallets with smart rate limiting and error handling"""
+        """Process a batch of wallets with smart rate limiting and performance optimization"""
         batch_start_time = asyncio.get_event_loop().time()
         successful_checks = 0
         failed_checks = 0
+        wallet_times = []
         
         try:
-            logger.debug(f"📦 Starting batch {batch_number}: {len(wallet_batch)} wallets")
+            logger.debug(f"📦 Starting batch {batch_number}: {len(wallet_batch)} wallets (mode: {self.rate_limiter.performance_mode})")
             
             # Process wallets in the batch sequentially with smart delays
             for i, wallet_info in enumerate(wallet_batch):
@@ -871,23 +966,37 @@ class SolanaMonitor:
                     successful_checks += 1
                     
                     wallet_duration = asyncio.get_event_loop().time() - wallet_start_time
-                    logger.debug(f"  ✅ Wallet {i+1}/{len(wallet_batch)} checked in {wallet_duration:.2f}s")
+                    wallet_times.append(wallet_duration)
+                    
+                    # Only log individual wallet times in debug mode for very slow wallets
+                    if wallet_duration > 2.0:
+                        logger.debug(f"  🐌 Slow wallet {i+1}/{len(wallet_batch)}: {wallet_duration:.2f}s")
                     
                 except Exception as e:
                     failed_checks += 1
-                    logger.debug(f"  ❌ Error processing wallet {i+1}/{len(wallet_batch)}: {e}")
+                    wallet_duration = asyncio.get_event_loop().time() - wallet_start_time
+                    wallet_times.append(wallet_duration)
+                    logger.debug(f"  ❌ Error processing wallet {i+1}/{len(wallet_batch)} in {wallet_duration:.2f}s: {e}")
             
             batch_duration = asyncio.get_event_loop().time() - batch_start_time
+            avg_wallet_time = sum(wallet_times) / len(wallet_times) if wallet_times else 0
             
             # Get rate limiter stats
             limiter_stats = self.rate_limiter.get_stats()
             
+            # Enhanced batch logging with performance metrics
             logger.debug(
                 f"📦 Batch {batch_number} completed: "
                 f"✅{successful_checks} ❌{failed_checks} "
-                f"in {batch_duration:.2f}s "
-                f"(delay: {limiter_stats['current_delay']:.3f}s)"
+                f"in {batch_duration:.1f}s "
+                f"(avg: {avg_wallet_time:.2f}s/wallet, "
+                f"delay: {limiter_stats['current_delay']:.3f}s, "
+                f"rate: {limiter_stats['recent_request_rate']}/10s)"
             )
+            
+            # Performance optimization suggestions
+            if avg_wallet_time > 1.0 and self.rate_limiter.performance_mode != 'careful':
+                logger.debug(f"💡 Batch {batch_number}: Average wallet time high ({avg_wallet_time:.2f}s), may need optimization")
             
         except Exception as e:
             logger.error(f"Critical error in batch {batch_number}: {e}")
@@ -896,7 +1005,8 @@ class SolanaMonitor:
             'batch_number': batch_number,
             'successful_checks': successful_checks,
             'failed_checks': failed_checks,
-            'duration': asyncio.get_event_loop().time() - batch_start_time
+            'duration': asyncio.get_event_loop().time() - batch_start_time,
+            'avg_wallet_time': sum(wallet_times) / len(wallet_times) if wallet_times else 0
         }
 
     async def start_monitoring_wallet(self, wallet_address: str, chat_id: int = None, callback_func=None):
@@ -1785,7 +1895,7 @@ class SolanaWalletBot:
             await update.message.reply_text(f"❌ خطأ في التشخيص: {str(e)}")
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stats command - show rate limiter and monitoring statistics"""
+        """Handle /stats command - show enhanced rate limiter and monitoring statistics"""
         chat_id = update.effective_chat.id
         
         try:
@@ -1801,27 +1911,49 @@ class SolanaWalletBot:
             total_requests = limiter_stats['success_count'] + limiter_stats['fail_count']
             success_rate = (limiter_stats['success_count'] / total_requests * 100) if total_requests > 0 else 0
             
-            stats_message = f"📊 إحصائيات النظام:\n\n"
+            # Calculate estimated cycle time
+            optimal_batch_size = self.monitor.rate_limiter.get_optimal_batch_size()
+            num_batches = (len(all_wallets) + optimal_batch_size - 1) // optimal_batch_size if all_wallets else 0
+            estimated_cycle_time = (num_batches * BATCH_DELAY) + (len(all_wallets) * limiter_stats['current_delay'])
+            
+            stats_message = f"📊 إحصائيات النظام المحسن:\n\n"
             stats_message += f"🏦 البيانات:\n"
             stats_message += f"• المحافظ الخاصة بك: {len(monitored_wallets)}\n"
             stats_message += f"• إجمالي المحافظ: {len(all_wallets)}\n"
             stats_message += f"• المستخدمون النشطون: {users_count}\n\n"
             
             stats_message += f"⚡ أداء النظام:\n"
-            stats_message += f"• التأخير الحالي: {limiter_stats['current_delay']:.3f} ثانية\n"
-            stats_message += f"• النجاحات المتتالية: {limiter_stats['consecutive_successes']}\n"
-            stats_message += f"• معدل النجاح: {success_rate:.1f}%\n\n"
+            stats_message += f"• وضع الأداء: {limiter_stats['performance_mode'].upper()}\n"
+            stats_message += f"• التأخير الحالي: {limiter_stats['current_delay']:.3f}s\n"
+            stats_message += f"• حجم الدفعة التكيفي: {optimal_batch_size} محفظة\n"
+            stats_message += f"• عدد الدفعات المقدر: {num_batches}\n"
+            stats_message += f"• وقت الدورة المقدر: {estimated_cycle_time:.1f}s\n"
+            stats_message += f"• معدل الطلبات الحالي: {limiter_stats['recent_request_rate']}/10s\n\n"
             
             stats_message += f"📈 إحصائيات الطلبات:\n"
             stats_message += f"• الطلبات الناجحة: {limiter_stats['success_count']}\n"
             stats_message += f"• الطلبات الفاشلة: {limiter_stats['fail_count']}\n"
-            stats_message += f"• إجمالي الطلبات: {total_requests}\n\n"
+            stats_message += f"• معدل النجاح: {success_rate:.1f}%\n"
+            stats_message += f"• النجاحات المتتالية: {limiter_stats['consecutive_successes']}\n"
             
-            stats_message += f"🔧 إعدادات النظام:\n"
-            stats_message += f"• الحد الأدنى للتأخير: {MIN_DELAY:.3f}s\n"
-            stats_message += f"• الحد الأقصى للتأخير: {MAX_DELAY:.1f}s\n"
-            stats_message += f"• حجم الدفعة: {BATCH_SIZE} محافظ\n"
-            stats_message += f"• التأخير بين الدفعات: {BATCH_DELAY:.1f}s"
+            # Time since last 429 error
+            if limiter_stats['time_since_last_429']:
+                stats_message += f"• آخر خطأ 429: {limiter_stats['time_since_last_429']:.0f}s مضت\n"
+            else:
+                stats_message += f"• آخر خطأ 429: لم يحدث بعد\n"
+            
+            stats_message += f"\n🔧 إعدادات النظام:\n"
+            stats_message += f"• النطاق: {MIN_DELAY:.3f}s - {MAX_DELAY:.1f}s\n"
+            stats_message += f"• حد الطلبات: {MAX_RPC_CALLS_PER_SECOND}/ثانية\n"
+            stats_message += f"• التكيف الذكي: {'✅' if ADAPTIVE_BATCH_SIZING else '❌'}\n"
+            
+            # Performance assessment
+            if estimated_cycle_time < 60:
+                stats_message += f"\n🚀 الأداء: ممتاز! (دورة < دقيقة)"
+            elif estimated_cycle_time < 120:
+                stats_message += f"\n✅ الأداء: جيد (دورة < دقيقتان)"
+            else:
+                stats_message += f"\n⚠️ الأداء: يحتاج تحسين (دورة > دقيقتان)"
             
             await update.message.reply_text(stats_message)
             
