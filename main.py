@@ -51,36 +51,36 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 SOLANA_RPC_URL = os.getenv("RPC_URL")
 SOLANA_RPC_URL2 = os.getenv("RPC_URL2")
-POLLING_INTERVAL = 3  # seconds - تحسين للوصول لهدف 60 ثانية
+POLLING_INTERVAL = 2  # seconds - تقليل الفترة لتحسين السرعة
 MAX_MONITORED_WALLETS = 100000
 
-# Multi-RPC Configuration - نظام توزيع الطلبات بين providers متعددين
+# Multi-RPC Configuration - نظام توزيع الطلبات بين providers متعددين محسن
 RPC_PROVIDERS = {
     'primary': {
         'url': SOLANA_RPC_URL,
         'name': 'Alchemy',
-        'max_requests_per_second': 25,
+        'max_requests_per_second': 30,  # زيادة السعة
         'priority': 1
     },
     'secondary': {
         'url': SOLANA_RPC_URL2,
         'name': 'QuickNode', 
-        'max_requests_per_second': 15,
+        'max_requests_per_second': 20,  # زيادة السعة
         'priority': 2
     }
 }
 
-# Optimized Rate limiting configuration for 60-second cycle target
-BASE_DELAY = 0.15   # 150ms base delay - محسن للسرعة
-MAX_DELAY = 2.0     # Maximum delay cap (2 seconds)
-MIN_DELAY = 0.05    # Minimum delay (50ms) - أسرع
-BACKOFF_MULTIPLIER = 1.2  # Lower multiplier for faster recovery
-DELAY_REDUCTION_FACTOR = 0.92  # Faster delay reduction
-BATCH_SIZE = 20     # Increased batch size for faster processing
-BATCH_DELAY = 0.8   # Reduced delay between batches
-MAX_RETRIES = 2     # Keep retries low for speed
-TARGET_CYCLE_TIME = 60  # Target cycle completion time in seconds
-MAX_RPC_CALLS_PER_SECOND = 30  # Global rate limit for all providers combined
+# Ultra-optimized Rate limiting configuration for 60-second cycle target
+BASE_DELAY = 0.08   # 80ms base delay - أسرع بكثير
+MAX_DELAY = 1.5     # تقليل الحد الأقصى للتأخير
+MIN_DELAY = 0.03    # 30ms - أسرع ما يمكن
+BACKOFF_MULTIPLIER = 1.15  # تقليل معامل التباطؤ
+DELAY_REDUCTION_FACTOR = 0.95  # تسريع تقليل التأخير
+BATCH_SIZE = 30     # زيادة حجم الدفعة لمعالجة أسرع
+BATCH_DELAY = 0.5   # تقليل التأخير بين الدفعات
+MAX_RETRIES = 2     # الحفاظ على إعادة المحاولات منخفضة
+TARGET_CYCLE_TIME = 60  # هدف 60 ثانية
+MAX_RPC_CALLS_PER_SECOND = 45  # زيادة الحد العام للطلبات
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
@@ -823,19 +823,27 @@ class MultiRPCRateLimiter:
         }
 
     def get_optimal_batch_size(self) -> int:
-        """Calculate optimal batch size for 60-second target"""
+        """حساب حجم الدفعة الأمثل لهدف 60 ثانية مع تحسينات جديدة"""
         if not self.providers:
             return BATCH_SIZE
             
-        # Calculate total available capacity
+        # حساب السعة الإجمالية المتاحة
         total_capacity = sum(
             provider_data['config']['max_requests_per_second'] 
             for provider_data in self.providers.values() 
             if provider_data['is_available']
         )
         
-        # Aim for 60-second cycle: adjust batch size based on capacity
-        optimal_size = max(BATCH_SIZE, min(25, int(total_capacity * 0.6)))
+        # تحسين حجم الدفعة بناء على الأداء الحالي
+        current_time = asyncio.get_event_loop().time()
+        recent_performance = sum(1 for p in self.providers.values() 
+                               if p['health_score'] > 80 and p['is_available'])
+        
+        # زيادة حجم الدفعة إذا كان الأداء جيد
+        performance_multiplier = 1.2 if recent_performance == len(self.providers) else 1.0
+        
+        # هدف 60 ثانية: تعديل حجم الدفعة بناء على السعة والأداء
+        optimal_size = max(BATCH_SIZE, min(40, int(total_capacity * 0.8 * performance_multiplier)))
         return optimal_size
 
     def get_stats(self) -> dict:
@@ -1089,23 +1097,24 @@ class SolanaMonitor:
 
                     logger.debug(f"🔄 Starting cycle #{cycle_count} for {len(all_wallets)} wallets")
 
-                    # Process wallets in adaptive batches optimized for 60-second target
+                    # تحسين معالجة الدفعات للوصول لهدف 60 ثانية
                     batch_results = []
                     total_successful = 0
                     total_failed = 0
                     
-                    # Get optimal batch size from multi-RPC rate limiter
-                    current_batch_size = self.rate_limiter.get_optimal_batch_size()
+                    # حساب حجم الدفعة الديناميكي بناء على عدد المحافظ
+                    current_batch_size = min(self.rate_limiter.get_optimal_batch_size(), 
+                                           max(15, len(all_wallets) // 8))  # تكيف أفضل
                     num_batches = (len(all_wallets) + current_batch_size - 1) // current_batch_size
                     
-                    # Calculate target time per batch to meet 60-second cycle goal
-                    target_processing_time = TARGET_CYCLE_TIME - POLLING_INTERVAL - 5  # Leave 5s buffer
+                    # حساب الوقت المستهدف مع هامش أمان أقل
+                    target_processing_time = TARGET_CYCLE_TIME - POLLING_INTERVAL - 3  # هامش 3 ثوانٍ فقط
                     target_time_per_batch = target_processing_time / num_batches if num_batches > 0 else target_processing_time
                     
                     limiter_stats = self.rate_limiter.get_stats()
                     optimal_provider = limiter_stats.get('optimal_provider', 'primary')
                     
-                    logger.debug(f"📊 Multi-RPC batch size: {current_batch_size}, Target: {target_time_per_batch:.1f}s/batch, Optimal provider: {optimal_provider}")
+                    logger.debug(f"🚀 Ultra-optimized batch: {current_batch_size} wallets, Target: {target_time_per_batch:.1f}s/batch, Provider: {optimal_provider}")
                     
                     for i in range(0, len(all_wallets), current_batch_size):
                         batch_start = asyncio.get_event_loop().time()
@@ -1121,17 +1130,19 @@ class SolanaMonitor:
                         total_successful += batch_result['successful_checks']
                         total_failed += batch_result['failed_checks']
                         
-                        # Dynamic delay adjustment based on timing vs target
+                        # تحسين التأخير الديناميكي للأداء الأمثل
                         batch_time = asyncio.get_event_loop().time() - batch_start
                         if i + current_batch_size < len(all_wallets):
-                            if batch_time < target_time_per_batch * 0.7:  # Running fast
-                                dynamic_delay = BATCH_DELAY * 0.5  # Reduce delay
-                            elif batch_time > target_time_per_batch * 1.2:  # Running slow
-                                dynamic_delay = BATCH_DELAY * 0.2  # Minimal delay
+                            if batch_time < target_time_per_batch * 0.6:  # سريع جداً
+                                dynamic_delay = BATCH_DELAY * 0.3  # تأخير أقل
+                            elif batch_time < target_time_per_batch * 0.8:  # سريع
+                                dynamic_delay = BATCH_DELAY * 0.6  # تأخير قليل
+                            elif batch_time > target_time_per_batch * 1.3:  # بطيء
+                                dynamic_delay = BATCH_DELAY * 0.1  # تأخير ضئيل
                             else:
-                                dynamic_delay = BATCH_DELAY
+                                dynamic_delay = BATCH_DELAY * 0.4  # تأخير متوسط
                             
-                            logger.debug(f"⏱️ Batch time: {batch_time:.1f}s (target: {target_time_per_batch:.1f}s), delay: {dynamic_delay:.1f}s")
+                            logger.debug(f"⚡ Batch: {batch_time:.1f}s (target: {target_time_per_batch:.1f}s), delay: {dynamic_delay:.2f}s")
                             await asyncio.sleep(dynamic_delay)
                     
                     # Calculate cycle time and performance metrics
@@ -1264,20 +1275,20 @@ class SolanaMonitor:
         await self.start_global_monitoring(callback_func)
 
     async def check_transactions_optimized(self, wallet_address: str):
-        """Optimized transaction checking with enhanced parallel processing"""
+        """فحص المعاملات محسن للسرعة القصوى"""
         try:
-            # Get recent transactions with rate limiting
+            # الحصول على المعاملات الحديثة مع تحديد أقل
             payload = {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "getSignaturesForAddress",
                 "params": [
                     wallet_address,
-                    {"limit": 15}  # زيادة حد المعاملات لاكتشاف أفضل وأسرع
+                    {"limit": 10}  # تقليل الحد لسرعة أكبر
                 ]
             }
 
-            data = await self.make_rpc_call(payload, max_retries=2)  # Reduced retries for speed
+            data = await self.make_rpc_call(payload, max_retries=1)  # إعادة محاولة واحدة فقط للسرعة
             if not data or 'result' not in data or not data['result']:
                 return
 
