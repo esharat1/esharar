@@ -59,28 +59,28 @@ RPC_PROVIDERS = {
     'primary': {
         'url': SOLANA_RPC_URL,
         'name': 'Alchemy',
-        'max_requests_per_second': 30,  # زيادة السعة
+        'max_requests_per_second': 25,  # حسب حصة المستخدم الفعلية
         'priority': 1
     },
     'secondary': {
         'url': SOLANA_RPC_URL2,
         'name': 'QuickNode', 
-        'max_requests_per_second': 20,  # زيادة السعة
+        'max_requests_per_second': 15,  # حسب حصة المستخدم الفعلية
         'priority': 2
     }
 }
 
 # Ultra-optimized Rate limiting configuration for 60-second cycle target
-BASE_DELAY = 0.08   # 80ms base delay - أسرع بكثير
-MAX_DELAY = 1.5     # تقليل الحد الأقصى للتأخير
-MIN_DELAY = 0.03    # 30ms - أسرع ما يمكن
-BACKOFF_MULTIPLIER = 1.15  # تقليل معامل التباطؤ
-DELAY_REDUCTION_FACTOR = 0.95  # تسريع تقليل التأخير
-BATCH_SIZE = 30     # زيادة حجم الدفعة لمعالجة أسرع
-BATCH_DELAY = 0.5   # تقليل التأخير بين الدفعات
+BASE_DELAY = 0.1    # تأخير أساسي أكثر أماناً
+MAX_DELAY = 2.0     # حد أقصى محافظ للتأخير
+MIN_DELAY = 0.05    # حد أدنى آمن
+BACKOFF_MULTIPLIER = 1.2   # زيادة التأخير بحذر
+DELAY_REDUCTION_FACTOR = 0.9  # تقليل التأخير تدريجياً
+BATCH_SIZE = 25     # حجم دفعة محافظ أكثر
+BATCH_DELAY = 0.8   # تأخير أطول بين الدفعات
 MAX_RETRIES = 2     # الحفاظ على إعادة المحاولات منخفضة
 TARGET_CYCLE_TIME = 60  # هدف 60 ثانية
-MAX_RPC_CALLS_PER_SECOND = 45  # زيادة الحد العام للطلبات
+MAX_RPC_CALLS_PER_SECOND = 40  # 25 + 15 = 40 طلب/ثانية إجمالي
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
