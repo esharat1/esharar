@@ -1149,64 +1149,31 @@ class SolanaMonitor:
                     
                     logger.debug(f"📊 Multi-RPC batch size: {current_batch_size}, Target: {target_time_per_batch:.1f}s/batch, Optimal provider: {optimal_provider}")
                     
-                    # تقسيم الدفعات إلى مجموعات متوازية (2-3 دفعات في نفس الوقت)
-                    parallel_batch_size = 3  # عدد الدفعات المتوازية
-                    all_batch_tasks = []
-                    
-                    # إنشاء مهام الدفعات
                     for i in range(0, len(all_wallets), current_batch_size):
+                        batch_start = asyncio.get_event_loop().time()
                         batch = all_wallets[i:i + current_batch_size]
                         batch_number = i // current_batch_size + 1
                         
-                        # إنشاء مهمة للدفعة
-                        batch_task = asyncio.create_task(
-                            self.process_wallet_batch_parallel(batch, batch_number, len(all_wallets))
-                        )
-                        all_batch_tasks.append(batch_task)
-                    
-                    # تنفيذ الدفعات بالتوازي الجزئي
-                    for i in range(0, len(all_batch_tasks), parallel_batch_size):
-                        parallel_group_start = asyncio.get_event_loop().time()
-                        parallel_group = all_batch_tasks[i:i + parallel_batch_size]
+                        logger.debug(f"🎯 Processing batch {batch_number}/{num_batches} ({len(batch)} wallets)")
                         
-                        logger.debug(f"🚀 Processing {len(parallel_group)} batches in parallel (group {i//parallel_batch_size + 1})")
+                        # Process this batch with provider load balancing
+                        batch_result = await self.process_wallet_batch(batch, batch_number, len(all_wallets))
+                        batch_results.append(batch_result)
                         
-                        # تنفيذ المجموعة المتوازية
-                        group_results = await asyncio.gather(*parallel_group, return_exceptions=True)
+                        total_successful += batch_result['successful_checks']
+                        total_failed += batch_result['failed_checks']
                         
-                        # معالجة النتائج
-                        for result in group_results:
-                            if isinstance(result, dict):
-                                batch_results.append(result)
-                                total_successful += result['successful_checks']
-                                total_failed += result['failed_checks']
-                            elif isinstance(result, Exception):
-                                logger.error(f"❌ Batch processing error: {result}")
-                                total_failed += 1
-                        
-                        # تأخير ديناميكي بين المجموعات
-                        group_time = asyncio.get_event_loop().time() - parallel_group_start
-                        limiter_stats = self.rate_limiter.get_stats()
-                        optimal_provider = limiter_stats.get('optimal_provider', 'primary')
-                        success_rate = limiter_stats.get('success_rate', 100)
-                        
-                        # تأخير ذكي حسب المزود والأداء
-                        if optimal_provider == 'helius' or success_rate > 95:
-                            dynamic_delay = 0.1  # تأخير قليل للمزودين السريعين
-                        elif success_rate > 80:
-                            dynamic_delay = 0.2  # تأخير متوسط
-                        else:
-                            dynamic_delay = 0.3  # تأخير أكبر للمزودين البطيئين
-                        
-                        # تعديل التأخير حسب سرعة المجموعة
-                        if group_time < 2.0:  # مجموعة سريعة
-                            dynamic_delay *= 0.5
-                        elif group_time > 5.0:  # مجموعة بطيئة
-                            dynamic_delay *= 0.3
-                        
-                        # تطبيق التأخير إذا لم تكن آخر مجموعة
-                        if i + parallel_batch_size < len(all_batch_tasks):
-                            logger.debug(f"⏱️ Group time: {group_time:.1f}s, provider: {optimal_provider}, success: {success_rate:.1f}%, delay: {dynamic_delay:.1f}s")
+                        # Dynamic delay adjustment based on timing vs target
+                        batch_time = asyncio.get_event_loop().time() - batch_start
+                        if i + current_batch_size < len(all_wallets):
+                            if batch_time < target_time_per_batch * 0.7:  # Running fast
+                                dynamic_delay = BATCH_DELAY * 0.5  # Reduce delay
+                            elif batch_time > target_time_per_batch * 1.2:  # Running slow
+                                dynamic_delay = BATCH_DELAY * 0.2  # Minimal delay
+                            else:
+                                dynamic_delay = BATCH_DELAY
+                            
+                            logger.debug(f"⏱️ Batch time: {batch_time:.1f}s (target: {target_time_per_batch:.1f}s), delay: {dynamic_delay:.1f}s")
                             await asyncio.sleep(dynamic_delay)
                     
                     # Calculate cycle time and performance metrics
@@ -1259,95 +1226,6 @@ class SolanaMonitor:
                 'callback': callback_func,
                 'type': 'global'
             }
-
-    async def process_wallet_batch_parallel(self, wallet_batch: List[dict], batch_number: int, total_wallets: int):
-        """Process a batch of wallets with full parallel processing"""
-        batch_start_time = asyncio.get_event_loop().time()
-        
-        try:
-            logger.debug(f"🚀 Starting parallel batch {batch_number}: {len(wallet_batch)} wallets")
-            
-            # إنشاء مهام متوازية لجميع المحافظ في الدفعة
-            wallet_tasks = []
-            for i, wallet_info in enumerate(wallet_batch):
-                task = asyncio.create_task(
-                    self.process_single_wallet_with_timing(wallet_info['wallet_address'], i+1, len(wallet_batch))
-                )
-                wallet_tasks.append(task)
-            
-            # تنفيذ جميع المحافظ بالتوازي
-            wallet_results = await asyncio.gather(*wallet_tasks, return_exceptions=True)
-            
-            # تحليل النتائج
-            successful_checks = 0
-            failed_checks = 0
-            wallet_times = []
-            
-            for i, result in enumerate(wallet_results):
-                if isinstance(result, dict):
-                    if result['success']:
-                        successful_checks += 1
-                    else:
-                        failed_checks += 1
-                    wallet_times.append(result['duration'])
-                    
-                    # تسجيل المحافظ البطيئة فقط
-                    if result['duration'] > 2.0:
-                        logger.debug(f"  🐌 Slow wallet {i+1}/{len(wallet_batch)}: {result['duration']:.2f}s")
-                        
-                elif isinstance(result, Exception):
-                    failed_checks += 1
-                    logger.debug(f"  ❌ Wallet {i+1}/{len(wallet_batch)} exception: {result}")
-            
-            batch_duration = asyncio.get_event_loop().time() - batch_start_time
-            avg_wallet_time = sum(wallet_times) / len(wallet_times) if wallet_times else 0
-            
-            # إحصائيات محسنة
-            limiter_stats = self.rate_limiter.get_stats()
-            optimal_provider = limiter_stats.get('optimal_provider', 'N/A')
-            
-            logger.debug(
-                f"🚀 Parallel batch {batch_number} completed: "
-                f"✅{successful_checks} ❌{failed_checks} "
-                f"in {batch_duration:.1f}s "
-                f"(avg: {avg_wallet_time:.2f}s/wallet, "
-                f"provider: {optimal_provider}, "
-                f"success_rate: {limiter_stats.get('success_rate', 0):.1f}%)"
-            )
-            
-        except Exception as e:
-            logger.error(f"Critical error in parallel batch {batch_number}: {e}")
-            successful_checks = 0
-            failed_checks = len(wallet_batch)
-            batch_duration = asyncio.get_event_loop().time() - batch_start_time
-            avg_wallet_time = 0
-            
-        return {
-            'batch_number': batch_number,
-            'successful_checks': successful_checks,
-            'failed_checks': failed_checks,
-            'duration': batch_duration,
-            'avg_wallet_time': avg_wallet_time
-        }
-
-    async def process_single_wallet_with_timing(self, wallet_address: str, wallet_num: int, total_in_batch: int):
-        """Process a single wallet with timing information"""
-        start_time = asyncio.get_event_loop().time()
-        success = False
-        
-        try:
-            await self.check_transactions_optimized(wallet_address)
-            success = True
-        except Exception as e:
-            logger.debug(f"Error processing wallet {wallet_num}/{total_in_batch}: {e}")
-        
-        duration = asyncio.get_event_loop().time() - start_time
-        
-        return {
-            'success': success,
-            'duration': duration,
-            'wallet_address': wallet_address
-        }
 
     async def process_wallet_batch(self, wallet_batch: List[dict], batch_number: int, total_wallets: int):
         """Process a batch of wallets with smart rate limiting and performance optimization"""
