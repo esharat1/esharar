@@ -54,33 +54,33 @@ SOLANA_RPC_URL2 = os.getenv("RPC_URL2")
 POLLING_INTERVAL = 3  # seconds - تحسين للوصول لهدف 60 ثانية
 MAX_MONITORED_WALLETS = 100000
 
-# Multi-RPC Configuration - نظام توزيع الطلبات بين providers متعددين
+# Multi-RPC Configuration - نظام توزيع متوازن 50/50 بين providers
 RPC_PROVIDERS = {
     'primary': {
         'url': SOLANA_RPC_URL,
         'name': 'Alchemy Primary',
-        'max_requests_per_second': 25,
+        'max_requests_per_second': 20,  # تقليل قليلاً لتجنب rate limiting
         'priority': 1
     },
     'secondary': {
         'url': SOLANA_RPC_URL2,
         'name': 'Alchemy Secondary', 
-        'max_requests_per_second': 25,
-        'priority': 2
+        'max_requests_per_second': 20,  # تقليل قليلاً لتجنب rate limiting
+        'priority': 1  # نفس الأولوية للتوزيع المتوازن
     }
 }
 
-# معاملات محسنة للأداء الأمثل
-BASE_DELAY = 0.08   # 80ms base delay - محسن أكثر للسرعة
-MAX_DELAY = 1.5     # Maximum delay cap (1.5 seconds) - أقل
-MIN_DELAY = 0.02    # Minimum delay (20ms) - أسرع
-BACKOFF_MULTIPLIER = 1.15  # تقليل أكثر للضرب
-DELAY_REDUCTION_FACTOR = 0.85  # تسريع أكثر للتعافي
-BATCH_SIZE = 30     # زيادة حجم الدفعة لمعالجة أسرع
-BATCH_DELAY = 0.4   # تقليل التأخير بين الدفعات
+# معاملات محسنة للأداء الأمثل مع توزيع متوازن
+BASE_DELAY = 0.05   # 50ms base delay - أسرع للتوزيع الأفضل
+MAX_DELAY = 1.0     # Maximum delay cap (1 second) - أقل
+MIN_DELAY = 0.01    # Minimum delay (10ms) - أسرع
+BACKOFF_MULTIPLIER = 1.1  # تقليل أكثر للضرب
+DELAY_REDUCTION_FACTOR = 0.9  # تسريع أكثر للتعافي
+BATCH_SIZE = 25     # حجم دفعة أقل لتوزيع أفضل
+BATCH_DELAY = 0.3   # تقليل التأخير بين الدفعات
 MAX_RETRIES = 2     # Keep retries low for speed
 TARGET_CYCLE_TIME = 60  # Target cycle completion time in seconds
-MAX_RPC_CALLS_PER_SECOND = 45  # Global rate limit for all providers combined (25+25-5 buffer)
+MAX_RPC_CALLS_PER_SECOND = 35  # Global rate limit for all providers combined (20+20-5 buffer)
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
@@ -612,7 +612,7 @@ class MultiRPCRateLimiter:
         logger.info(f"🔄 Initialized {len(self.providers)} RPC providers: {list(self.providers.keys())}")
 
     def get_optimal_provider(self) -> str:
-        """Select the best RPC provider with improved load balancing (50/50)"""
+        """Select the best RPC provider with true 50/50 load balancing"""
         if not self.providers:
             return None
             
@@ -625,18 +625,18 @@ class MultiRPCRateLimiter:
                 
             config = provider_data['config']
             
-            # تصحيح نافذة الوقت: 1 ثانية بدلاً من 10 ثوانٍ
+            # تنظيف الطلبات القديمة - نافذة 1 ثانية
             provider_data['recent_requests'] = [
                 t for t in provider_data['recent_requests'] 
-                if current_time - t < 1.0  # إصلاح: نافذة ثانية واحدة
+                if current_time - t < 1.0
             ]
             
-            # Calculate current load (requests per second)
+            # حساب الحمولة الحالية
             current_load = len(provider_data['recent_requests'])
             load_percentage = (current_load / config['max_requests_per_second']) * 100
             
-            # تحسين التوزيع: تجنب المزودين المحملين أكثر من 95%
-            if load_percentage >= 95:  # رفع الحد من 90% إلى 95%
+            # تجنب المزودين المحملين أكثر من 80% للحصول على توزيع أفضل
+            if load_percentage >= 80:
                 continue
                 
             available_providers.append({
@@ -644,23 +644,43 @@ class MultiRPCRateLimiter:
                 'load_percentage': load_percentage,
                 'health_score': provider_data['health_score'],
                 'priority': config['priority'],
-                'recent_requests': current_load
+                'recent_requests': current_load,
+                'total_requests': provider_data['success_count'] + provider_data['fail_count']
             })
         
         if not available_providers:
             # إذا لم يكن هناك مزودين متاحين، استخدم الأساسي
             return 'primary' if 'primary' in self.providers else list(self.providers.keys())[0]
         
-        # توزيع محسن 50/50: التناوب بين المزودين المتاحين
-        # أولوية للمزود الأقل استخداماً
-        available_providers.sort(key=lambda x: (x['load_percentage'], -x['health_score']))
+        # توزيع حقيقي 50/50: اختيار المزود الأقل استخداماً
+        # ترتيب حسب الحمولة الحالية أولاً، ثم العدد الإجمالي للطلبات
+        available_providers.sort(key=lambda x: (x['load_percentage'], x['total_requests']))
+        
+        # إذا كان هناك مزودين متاحين، اختر الأقل استخداماً
+        if len(available_providers) >= 2:
+            provider1 = available_providers[0]
+            provider2 = available_providers[1]
+            
+            # التبديل بين المزودين بناءً على الفرق في الاستخدام
+            load_diff = abs(provider1['load_percentage'] - provider2['load_percentage'])
+            
+            # إذا كان الفرق صغير (أقل من 20%)، اختر بالتناوب
+            if load_diff < 20:
+                # استخدام counter للتناوب
+                if not hasattr(self, '_provider_counter'):
+                    self._provider_counter = 0
+                self._provider_counter += 1
+                return available_providers[self._provider_counter % 2]['id']
+            else:
+                # إذا كان هناك فرق كبير، اختر الأقل حمولة
+                return provider1['id']
         
         return available_providers[0]['id']
 
     async def acquire(self, preferred_provider: str = None):
-        """محسن: Rate limiting ذكي مع توزيع متوازن"""
+        """محسن: Rate limiting ذكي مع توزيع متوازن 50/50"""
         async with self.lock:
-            # Select provider with improved load balancing
+            # Select provider with true 50/50 load balancing
             provider_id = preferred_provider or self.get_optimal_provider()
             
             if not provider_id or provider_id not in self.providers:
@@ -672,37 +692,44 @@ class MultiRPCRateLimiter:
             provider_data = self.providers[provider_id]
             current_time = asyncio.get_event_loop().time()
             
-            # تصحيح نافذة الوقت: 1 ثانية للمزود، 10 ثوانٍ للعالمي
+            # تنظيف الطلبات القديمة
             provider_data['recent_requests'] = [
                 t for t in provider_data['recent_requests'] 
-                if current_time - t < 1.0  # إصلاح: نافذة ثانية واحدة
+                if current_time - t < 1.0
             ]
             self.global_requests = [
                 t for t in self.global_requests 
-                if current_time - t < 10.0  # تقليل من 60 إلى 10 ثوانٍ
+                if current_time - t < 10.0
             ]
             
-            # Check if we need to wait based on provider limits
+            # فحص الحمولة وتطبيق التأخير المناسب
             config = provider_data['config']
             recent_count = len(provider_data['recent_requests'])
+            load_percentage = (recent_count / config['max_requests_per_second']) * 100
             
-            # تحسين: رفع العتبة من 90% إلى 95%
-            if recent_count >= config['max_requests_per_second'] * 0.95:
-                # Calculate optimized delay
-                wait_time = max(provider_data['current_delay'], 0.05)  # حد أدنى أقل
+            # تأخير تدريجي بناءً على الحمولة
+            if load_percentage >= 90:
+                # حمولة عالية - تأخير أطول
+                wait_time = max(provider_data['current_delay'], 0.1)
                 await asyncio.sleep(wait_time)
-            elif provider_data['current_delay'] > MIN_DELAY:
-                # تقليل التأخير إذا كان أكبر من الحد الأدنى
-                await asyncio.sleep(min(provider_data['current_delay'], 0.1))
+            elif load_percentage >= 70:
+                # حمولة متوسطة - تأخير قصير
+                wait_time = max(provider_data['current_delay'], 0.05)
+                await asyncio.sleep(wait_time)
+            elif load_percentage >= 50:
+                # حمولة منخفضة - تأخير أقل
+                wait_time = max(provider_data['current_delay'], 0.02)
+                await asyncio.sleep(wait_time)
+            # أقل من 50% - بدون تأخير إضافي
             
-            # Record request time
+            # تسجيل الطلب
             provider_data['recent_requests'].append(current_time)
             self.global_requests.append(current_time)
             
             return provider_id, provider_data['config']['url']
 
     async def on_success(self, provider_id: str):
-        """معالجة محسنة للطلبات الناجحة"""
+        """معالجة محسنة للطلبات الناجحة مع تحسين التوزيع"""
         if provider_id not in self.providers:
             return
             
@@ -712,22 +739,27 @@ class MultiRPCRateLimiter:
             provider_data['consecutive_successes'] += 1
             
             # تحسين أسرع لنقاط الصحة
-            provider_data['health_score'] = min(100.0, provider_data['health_score'] + 2.0)
+            provider_data['health_score'] = min(100.0, provider_data['health_score'] + 1.5)
             
-            # تقليل التأخير بشكل أكثر عدوانية
-            if provider_data['consecutive_successes'] >= 2:  # أقل من 3
+            # تقليل التأخير بشكل أكثر عدوانية للحصول على توزيع أفضل
+            if provider_data['consecutive_successes'] >= 3:
                 old_delay = provider_data['current_delay']
                 provider_data['current_delay'] = max(
                     MIN_DELAY, 
-                    provider_data['current_delay'] * 0.85  # أكثر عدوانية من 0.92
+                    provider_data['current_delay'] * 0.9  # تقليل أكثر تدرجاً
                 )
                 provider_data['consecutive_successes'] = 0
                 
                 if old_delay != provider_data['current_delay']:
                     logger.debug(f"🟢 {provider_id}: Reduced delay from {old_delay:.3f}s to {provider_data['current_delay']:.3f}s")
+            
+            # إعادة تمكين المزود إذا كان معطلاً وحالته جيدة
+            if not provider_data['is_available'] and provider_data['health_score'] > 60:
+                provider_data['is_available'] = True
+                logger.info(f"🟢 {provider_id}: Re-enabled due to improved health score")
 
     async def on_rate_limit_error(self, provider_id: str):
-        """معالجة محسنة لأخطاء Rate Limiting"""
+        """معالجة محسنة لأخطاء Rate Limiting مع توزيع أفضل للحمل"""
         if provider_id not in self.providers:
             return
             
@@ -738,19 +770,23 @@ class MultiRPCRateLimiter:
             current_time = asyncio.get_event_loop().time()
             provider_data['last_429_time'] = current_time
             
-            # تقليل معتدل في نقاط الصحة
-            provider_data['health_score'] = max(10.0, provider_data['health_score'] - 8.0)
+            # تقليل أكثر تدرجاً في نقاط الصحة
+            provider_data['health_score'] = max(20.0, provider_data['health_score'] - 5.0)
             
             # زيادة تأخير أقل عدوانية
             old_delay = provider_data['current_delay']
-            provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * 1.15)  # أقل من 1.2
+            provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * 1.1)
             
-            # إعادة تمكين أسرع وحد صحة أقل للإيقاف المؤقت
-            if provider_data['health_score'] < 5:  # أقل من 20
+            # إعادة تمكين أسرع مع حد صحة أقل
+            if provider_data['health_score'] < 30:
                 provider_data['is_available'] = False
-                logger.warning(f"🔴 {provider_id}: Temporarily disabled due to low health score")
-                # إعادة تمكين بعد 15 ثانية بدلاً من 60
-                asyncio.create_task(self._re_enable_provider(provider_id, 15))
+                logger.warning(f"🔴 {provider_id}: Temporarily disabled due to rate limiting")
+                # إعادة تمكين بعد 10 ثوانٍ فقط
+                asyncio.create_task(self._re_enable_provider(provider_id, 10))
+            
+            # إعادة تعيين العداد للتأكد من التوزيع المتوازن
+            if hasattr(self, '_provider_counter'):
+                self._provider_counter = 0
             
             logger.warning(f"🔴 {provider_id}: Rate limit hit! Delay: {old_delay:.3f}s → {provider_data['current_delay']:.3f}s")
 
