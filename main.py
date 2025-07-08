@@ -51,10 +51,11 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 SOLANA_RPC_URL = os.getenv("RPC_URL")
 SOLANA_RPC_URL2 = os.getenv("RPC_URL2")
+SOLANA_RPC_URL3 = os.getenv("RPC_URL3")  # QuickNode URL
 POLLING_INTERVAL = 3  # seconds - تحسين للوصول لهدف 60 ثانية
 MAX_MONITORED_WALLETS = 100000
 
-# Multi-RPC Configuration - نظام توزيع متوازن 50/50 بين providers
+# Multi-RPC Configuration - نظام توزيع متوازن مع QuickNode
 RPC_PROVIDERS = {
     'primary': {
         'url': SOLANA_RPC_URL,
@@ -66,6 +67,12 @@ RPC_PROVIDERS = {
         'url': SOLANA_RPC_URL2,
         'name': 'Alchemy Secondary', 
         'max_requests_per_second': 20,  # تقليل قليلاً لتجنب rate limiting
+        'priority': 1  # نفس الأولوية للتوزيع المتوازن
+    },
+    'quicknode': {
+        'url': SOLANA_RPC_URL3,
+        'name': 'QuickNode',
+        'max_requests_per_second': 15,  # معدل QuickNode
         'priority': 1  # نفس الأولوية للتوزيع المتوازن
     }
 }
@@ -80,7 +87,7 @@ BATCH_SIZE = 25     # حجم دفعة أقل لتوزيع أفضل
 BATCH_DELAY = 0.3   # تقليل التأخير بين الدفعات
 MAX_RETRIES = 2     # Keep retries low for speed
 TARGET_CYCLE_TIME = 60  # Target cycle completion time in seconds
-MAX_RPC_CALLS_PER_SECOND = 35  # Global rate limit for all providers combined (20+20-5 buffer)
+MAX_RPC_CALLS_PER_SECOND = 50  # Global rate limit for all providers combined (20+20+15-5 buffer)
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
