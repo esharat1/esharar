@@ -58,14 +58,14 @@ MAX_MONITORED_WALLETS = 100000
 RPC_PROVIDERS = {
     'primary': {
         'url': SOLANA_RPC_URL,
-        'name': 'Alchemy',
+        'name': 'Alchemy Primary',
         'max_requests_per_second': 25,
         'priority': 1
     },
     'secondary': {
         'url': SOLANA_RPC_URL2,
-        'name': 'QuickNode', 
-        'max_requests_per_second': 15,
+        'name': 'Alchemy Secondary', 
+        'max_requests_per_second': 25,
         'priority': 2
     }
 }
@@ -80,7 +80,7 @@ BATCH_SIZE = 20     # Increased batch size for faster processing
 BATCH_DELAY = 0.8   # Reduced delay between batches
 MAX_RETRIES = 2     # Keep retries low for speed
 TARGET_CYCLE_TIME = 60  # Target cycle completion time in seconds
-MAX_RPC_CALLS_PER_SECOND = 30  # Global rate limit for all providers combined
+MAX_RPC_CALLS_PER_SECOND = 45  # Global rate limit for all providers combined (25+25-5 buffer)
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
