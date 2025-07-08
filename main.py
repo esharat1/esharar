@@ -55,7 +55,7 @@ SOLANA_RPC_URL3 = os.getenv("RPC_URL3")  # QuickNode URL
 POLLING_INTERVAL = 3  # seconds - تحسين للوصول لهدف 60 ثانية
 MAX_MONITORED_WALLETS = 100000
 
-# Multi-RPC Configuration - نظام توزيع متوازن مع QuickNode
+# Multi-RPC Configuration - نظام توزيع متوازن مع QuickNode و Helius
 RPC_PROVIDERS = {
     'primary': {
         'url': SOLANA_RPC_URL,
@@ -74,6 +74,12 @@ RPC_PROVIDERS = {
         'name': 'QuickNode',
         'max_requests_per_second': 15,  # معدل QuickNode
         'priority': 1  # نفس الأولوية للتوزيع المتوازن
+    },
+    'helius': {
+        'url': os.getenv("RPC_URL4"),
+        'name': 'Helius',
+        'max_requests_per_second': 10,  # معدل Helius
+        'priority': 1  # نفس الأولوية للتوزيع المتوازن
     }
 }
 
@@ -87,7 +93,7 @@ BATCH_SIZE = 25     # حجم دفعة أقل لتوزيع أفضل
 BATCH_DELAY = 0.3   # تقليل التأخير بين الدفعات
 MAX_RETRIES = 2     # Keep retries low for speed
 TARGET_CYCLE_TIME = 60  # Target cycle completion time in seconds
-MAX_RPC_CALLS_PER_SECOND = 50  # Global rate limit for all providers combined (20+20+15-5 buffer)
+MAX_RPC_CALLS_PER_SECOND = 60  # Global rate limit for all providers combined (20+20+15+10-5 buffer)
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
