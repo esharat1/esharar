@@ -70,14 +70,14 @@ RPC_PROVIDERS = {
     }
 }
 
-# Optimized Rate limiting configuration for 60-second cycle target
-BASE_DELAY = 0.15   # 150ms base delay - محسن للسرعة
-MAX_DELAY = 2.0     # Maximum delay cap (2 seconds)
-MIN_DELAY = 0.05    # Minimum delay (50ms) - أسرع
-BACKOFF_MULTIPLIER = 1.2  # Lower multiplier for faster recovery
-DELAY_REDUCTION_FACTOR = 0.92  # Faster delay reduction
-BATCH_SIZE = 20     # Increased batch size for faster processing
-BATCH_DELAY = 0.8   # Reduced delay between batches
+# معاملات محسنة للأداء الأمثل
+BASE_DELAY = 0.08   # 80ms base delay - محسن أكثر للسرعة
+MAX_DELAY = 1.5     # Maximum delay cap (1.5 seconds) - أقل
+MIN_DELAY = 0.02    # Minimum delay (20ms) - أسرع
+BACKOFF_MULTIPLIER = 1.15  # تقليل أكثر للضرب
+DELAY_REDUCTION_FACTOR = 0.85  # تسريع أكثر للتعافي
+BATCH_SIZE = 30     # زيادة حجم الدفعة لمعالجة أسرع
+BATCH_DELAY = 0.4   # تقليل التأخير بين الدفعات
 MAX_RETRIES = 2     # Keep retries low for speed
 TARGET_CYCLE_TIME = 60  # Target cycle completion time in seconds
 MAX_RPC_CALLS_PER_SECOND = 45  # Global rate limit for all providers combined (25+25-5 buffer)
@@ -612,13 +612,12 @@ class MultiRPCRateLimiter:
         logger.info(f"🔄 Initialized {len(self.providers)} RPC providers: {list(self.providers.keys())}")
 
     def get_optimal_provider(self) -> str:
-        """Select the best RPC provider based on current load and health"""
+        """Select the best RPC provider with improved load balancing (50/50)"""
         if not self.providers:
             return None
             
         current_time = asyncio.get_event_loop().time()
-        best_provider = None
-        best_score = -1
+        available_providers = []
         
         for provider_id, provider_data in self.providers.items():
             if not provider_data['is_available']:
@@ -626,50 +625,42 @@ class MultiRPCRateLimiter:
                 
             config = provider_data['config']
             
-            # Clean old requests (last 10 seconds)
+            # تصحيح نافذة الوقت: 1 ثانية بدلاً من 10 ثوانٍ
             provider_data['recent_requests'] = [
                 t for t in provider_data['recent_requests'] 
-                if current_time - t < 10
+                if current_time - t < 1.0  # إصلاح: نافذة ثانية واحدة
             ]
             
             # Calculate current load (requests per second)
-            current_load = len(provider_data['recent_requests']) / 10.0
+            current_load = len(provider_data['recent_requests'])
             load_percentage = (current_load / config['max_requests_per_second']) * 100
             
-            # Calculate provider score based on:
-            # 1. Health score (0-100)
-            # 2. Current load (lower is better)
-            # 3. Priority (lower number = higher priority)
-            # 4. Recent errors
-            
-            health_penalty = (100 - provider_data['health_score']) * 0.5
-            load_penalty = load_percentage * 0.3
-            priority_bonus = (3 - config['priority']) * 10  # Higher priority = bonus
-            
-            # Recent 429 errors penalty
-            error_penalty = 0
-            if provider_data['last_429_time']:
-                time_since_429 = current_time - provider_data['last_429_time']
-                if time_since_429 < 30:  # Last 30 seconds
-                    error_penalty = max(0, 30 - time_since_429) * 2
-            
-            # Calculate final score
-            score = 100 + priority_bonus - health_penalty - load_penalty - error_penalty
-            
-            # Additional bonus if provider is significantly under-utilized
-            if load_percentage < 50:
-                score += (50 - load_percentage) * 0.2
-            
-            if score > best_score:
-                best_score = score
-                best_provider = provider_id
+            # تحسين التوزيع: تجنب المزودين المحملين أكثر من 95%
+            if load_percentage >= 95:  # رفع الحد من 90% إلى 95%
+                continue
+                
+            available_providers.append({
+                'id': provider_id,
+                'load_percentage': load_percentage,
+                'health_score': provider_data['health_score'],
+                'priority': config['priority'],
+                'recent_requests': current_load
+            })
         
-        return best_provider
+        if not available_providers:
+            # إذا لم يكن هناك مزودين متاحين، استخدم الأساسي
+            return 'primary' if 'primary' in self.providers else list(self.providers.keys())[0]
+        
+        # توزيع محسن 50/50: التناوب بين المزودين المتاحين
+        # أولوية للمزود الأقل استخداماً
+        available_providers.sort(key=lambda x: (x['load_percentage'], -x['health_score']))
+        
+        return available_providers[0]['id']
 
     async def acquire(self, preferred_provider: str = None):
-        """Smart rate limiting with provider selection"""
+        """محسن: Rate limiting ذكي مع توزيع متوازن"""
         async with self.lock:
-            # Select provider
+            # Select provider with improved load balancing
             provider_id = preferred_provider or self.get_optimal_provider()
             
             if not provider_id or provider_id not in self.providers:
@@ -681,26 +672,28 @@ class MultiRPCRateLimiter:
             provider_data = self.providers[provider_id]
             current_time = asyncio.get_event_loop().time()
             
-            # Clean old request times
+            # تصحيح نافذة الوقت: 1 ثانية للمزود، 10 ثوانٍ للعالمي
             provider_data['recent_requests'] = [
                 t for t in provider_data['recent_requests'] 
-                if current_time - t < 10
+                if current_time - t < 1.0  # إصلاح: نافذة ثانية واحدة
             ]
             self.global_requests = [
                 t for t in self.global_requests 
-                if current_time - t < 60
+                if current_time - t < 10.0  # تقليل من 60 إلى 10 ثوانٍ
             ]
             
             # Check if we need to wait based on provider limits
             config = provider_data['config']
             recent_count = len(provider_data['recent_requests'])
             
-            if recent_count >= config['max_requests_per_second'] * 0.9:  # 90% of limit
-                # Calculate dynamic delay based on provider capacity
-                wait_time = max(provider_data['current_delay'], 1.0 / config['max_requests_per_second'])
+            # تحسين: رفع العتبة من 90% إلى 95%
+            if recent_count >= config['max_requests_per_second'] * 0.95:
+                # Calculate optimized delay
+                wait_time = max(provider_data['current_delay'], 0.05)  # حد أدنى أقل
                 await asyncio.sleep(wait_time)
-            elif provider_data['current_delay'] > 0:
-                await asyncio.sleep(provider_data['current_delay'])
+            elif provider_data['current_delay'] > MIN_DELAY:
+                # تقليل التأخير إذا كان أكبر من الحد الأدنى
+                await asyncio.sleep(min(provider_data['current_delay'], 0.1))
             
             # Record request time
             provider_data['recent_requests'].append(current_time)
@@ -709,7 +702,7 @@ class MultiRPCRateLimiter:
             return provider_id, provider_data['config']['url']
 
     async def on_success(self, provider_id: str):
-        """Handle successful request"""
+        """معالجة محسنة للطلبات الناجحة"""
         if provider_id not in self.providers:
             return
             
@@ -718,15 +711,15 @@ class MultiRPCRateLimiter:
             provider_data['success_count'] += 1
             provider_data['consecutive_successes'] += 1
             
-            # Improve health score
-            provider_data['health_score'] = min(100.0, provider_data['health_score'] + 1.0)
+            # تحسين أسرع لنقاط الصحة
+            provider_data['health_score'] = min(100.0, provider_data['health_score'] + 2.0)
             
-            # Reduce delay if consistently successful
-            if provider_data['consecutive_successes'] >= 3:
+            # تقليل التأخير بشكل أكثر عدوانية
+            if provider_data['consecutive_successes'] >= 2:  # أقل من 3
                 old_delay = provider_data['current_delay']
                 provider_data['current_delay'] = max(
                     MIN_DELAY, 
-                    provider_data['current_delay'] * DELAY_REDUCTION_FACTOR
+                    provider_data['current_delay'] * 0.85  # أكثر عدوانية من 0.92
                 )
                 provider_data['consecutive_successes'] = 0
                 
@@ -734,7 +727,7 @@ class MultiRPCRateLimiter:
                     logger.debug(f"🟢 {provider_id}: Reduced delay from {old_delay:.3f}s to {provider_data['current_delay']:.3f}s")
 
     async def on_rate_limit_error(self, provider_id: str):
-        """Handle rate limit error"""
+        """معالجة محسنة لأخطاء Rate Limiting"""
         if provider_id not in self.providers:
             return
             
@@ -745,19 +738,19 @@ class MultiRPCRateLimiter:
             current_time = asyncio.get_event_loop().time()
             provider_data['last_429_time'] = current_time
             
-            # Decrease health score significantly
-            provider_data['health_score'] = max(0.0, provider_data['health_score'] - 15.0)
+            # تقليل معتدل في نقاط الصحة
+            provider_data['health_score'] = max(10.0, provider_data['health_score'] - 8.0)
             
-            # Increase delay
+            # زيادة تأخير أقل عدوانية
             old_delay = provider_data['current_delay']
-            provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * BACKOFF_MULTIPLIER)
+            provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * 1.15)  # أقل من 1.2
             
-            # Temporarily disable provider if too many recent errors
-            if provider_data['health_score'] < 20:
+            # إعادة تمكين أسرع وحد صحة أقل للإيقاف المؤقت
+            if provider_data['health_score'] < 5:  # أقل من 20
                 provider_data['is_available'] = False
                 logger.warning(f"🔴 {provider_id}: Temporarily disabled due to low health score")
-                # Re-enable after 60 seconds
-                asyncio.create_task(self._re_enable_provider(provider_id, 60))
+                # إعادة تمكين بعد 15 ثانية بدلاً من 60
+                asyncio.create_task(self._re_enable_provider(provider_id, 15))
             
             logger.warning(f"🔴 {provider_id}: Rate limit hit! Delay: {old_delay:.3f}s → {provider_data['current_delay']:.3f}s")
 
@@ -2136,6 +2129,10 @@ class SolanaWalletBot:
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /stats command - show enhanced Multi-RPC and monitoring statistics"""
+        await self._send_stats_message(update, context, is_refresh=False)
+
+    async def _send_stats_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE, is_refresh: bool = False):
+        """Send stats message with refresh functionality"""
         chat_id = update.effective_chat.id
         
         try:
@@ -2151,7 +2148,10 @@ class SolanaWalletBot:
             optimal_batch_size = self.monitor.rate_limiter.get_optimal_batch_size()
             num_batches = (len(all_wallets) + optimal_batch_size - 1) // optimal_batch_size if all_wallets else 0
             
-            stats_message = f"📊 إحصائيات نظام Multi-RPC المحسن:\n\n"
+            # Add refresh indicator if this is a refresh
+            refresh_indicator = "🔄 " if is_refresh else ""
+            
+            stats_message = f"{refresh_indicator}📊 إحصائيات نظام Multi-RPC المحسن:\n\n"
             stats_message += f"🏦 البيانات:\n"
             stats_message += f"• المحافظ الخاصة بك: {len(monitored_wallets)}\n"
             stats_message += f"• إجمالي المحافظ: {len(all_wallets)}\n"
@@ -2208,10 +2208,36 @@ class SolanaWalletBot:
                 else:
                     stats_message += f"⚠️ قد يتجاوز الهدف: {estimated_time:.1f}s > {TARGET_CYCLE_TIME}s"
             
-            await update.message.reply_text(stats_message)
+            # Add current timestamp
+            from datetime import datetime
+            current_time = datetime.now().strftime("%H:%M:%S")
+            stats_message += f"\n\n🕐 آخر تحديث: {current_time}"
+            
+            # Create refresh button
+            keyboard = [
+                [InlineKeyboardButton("🔄 تحديث السجلات", callback_data="refresh_stats")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            if is_refresh and hasattr(update, 'callback_query'):
+                # Edit existing message for refresh
+                await update.callback_query.edit_message_text(
+                    text=stats_message,
+                    reply_markup=reply_markup
+                )
+            else:
+                # Send new message
+                await update.message.reply_text(
+                    text=stats_message,
+                    reply_markup=reply_markup
+                )
             
         except Exception as e:
-            await update.message.reply_text(f"❌ خطأ في جلب الإحصائيات: {str(e)}")
+            error_msg = f"❌ خطأ في جلب الإحصائيات: {str(e)}"
+            if is_refresh and hasattr(update, 'callback_query'):
+                await update.callback_query.edit_message_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
 
     async def transfer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /transfer command - admin only: transfer all wallets to specified user"""
@@ -2556,6 +2582,10 @@ class SolanaWalletBot:
 
         elif query.data == "start_monitoring":
             await query.edit_message_text("🔔 المراقبة نشطة! ستحصل على إشعارات فورية عند حدوث معاملات جديدة.")
+
+        elif query.data == "refresh_stats":
+            await query.answer("🔄 جاري تحديث الإحصائيات...")
+            await self._send_stats_message(update, context, is_refresh=True)
 
     async def send_transaction_notification(self, chat_id: int, wallet_address: str, 
                                           amount: str, tx_type: str, timestamp: str, signature: str):
