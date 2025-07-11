@@ -625,17 +625,15 @@ class MultiRPCRateLimiter:
         logger.info(f"🔄 Initialized {len(self.providers)} RPC providers: {list(self.providers.keys())}")
 
     def get_optimal_provider(self) -> str:
-        """Select the best RPC provider with true 50/50 load balancing"""
+        """Select RPC provider using smart round-robin with load balancing"""
         if not self.providers:
             return None
             
         current_time = asyncio.get_event_loop().time()
         available_providers = []
         
+        # تنظيف وتحليل جميع المزودين
         for provider_id, provider_data in self.providers.items():
-            if not provider_data['is_available']:
-                continue
-                
             config = provider_data['config']
             
             # تنظيف الطلبات القديمة - نافذة 1 ثانية
@@ -644,56 +642,67 @@ class MultiRPCRateLimiter:
                 if current_time - t < 1.0
             ]
             
-            # حساب الحمولة الحالية
+            # حساب الحمولة الحالية والإحصائيات
             current_load = len(provider_data['recent_requests'])
             load_percentage = (current_load / config['max_requests_per_second']) * 100
             
-            # تجنب المزودين المحملين أكثر من 80% للحصول على توزيع أفضل
-            if load_percentage >= 80:
+            # حساب "وزن" المزود بناءً على عدة عوامل
+            usage_weight = provider_data['success_count'] + provider_data['fail_count']
+            health_factor = provider_data['health_score'] / 100.0
+            availability_factor = 1.0 if provider_data['is_available'] else 0.0
+            
+            # تجنب المزودين المحملين أكثر من 85% أو غير المتاحين
+            if load_percentage >= 85 or not provider_data['is_available']:
                 continue
                 
             available_providers.append({
                 'id': provider_id,
                 'load_percentage': load_percentage,
                 'health_score': provider_data['health_score'],
-                'priority': config['priority'],
+                'health_factor': health_factor,
+                'availability_factor': availability_factor,
                 'recent_requests': current_load,
-                'total_requests': provider_data['success_count'] + provider_data['fail_count']
+                'usage_weight': usage_weight,
+                'max_capacity': config['max_requests_per_second'],
+                'capacity_available': config['max_requests_per_second'] - current_load
             })
         
         if not available_providers:
-            # إذا لم يكن هناك مزودين متاحين، استخدم الأساسي
+            # إذا لم يكن هناك مزودين متاحين، استخدم الأساسي كاحتياطي
             return 'primary' if 'primary' in self.providers else list(self.providers.keys())[0]
         
-        # توزيع حقيقي 50/50: اختيار المزود الأقل استخداماً
-        # ترتيب حسب الحمولة الحالية أولاً، ثم العدد الإجمالي للطلبات
-        available_providers.sort(key=lambda x: (x['load_percentage'], x['total_requests']))
+        # **نظام Round-Robin الذكي مع توزيع عادل**
+        # ترتيب المزودين حسب الاستخدام الإجمالي (الأقل استخداماً أولاً)
+        available_providers.sort(key=lambda x: (x['usage_weight'], x['load_percentage']))
         
-        # إذا كان هناك مزودين متاحين، اختر الأقل استخداماً
-        if len(available_providers) >= 2:
-            provider1 = available_providers[0]
-            provider2 = available_providers[1]
-            
-            # التبديل بين المزودين بناءً على الفرق في الاستخدام
-            load_diff = abs(provider1['load_percentage'] - provider2['load_percentage'])
-            
-            # إذا كان الفرق صغير (أقل من 20%)، اختر بالتناوب
-            if load_diff < 20:
-                # استخدام counter للتناوب
-                if not hasattr(self, '_provider_counter'):
-                    self._provider_counter = 0
-                self._provider_counter += 1
-                return available_providers[self._provider_counter % 2]['id']
-            else:
-                # إذا كان هناك فرق كبير، اختر الأقل حمولة
-                return provider1['id']
+        # تطبيق Round-Robin مع إعطاء فرص متساوية لجميع المزودين
+        if not hasattr(self, '_provider_rotation_index'):
+            self._provider_rotation_index = 0
         
-        return available_providers[0]['id']
+        # إعادة تعيين الفهرس إذا تجاوز عدد المزودين المتاحين
+        if self._provider_rotation_index >= len(available_providers):
+            self._provider_rotation_index = 0
+        
+        # اختيار المزود بناءً على Round-Robin
+        selected_provider = available_providers[self._provider_rotation_index]
+        
+        # تحديث الفهرس للمرة القادمة
+        self._provider_rotation_index = (self._provider_rotation_index + 1) % len(available_providers)
+        
+        # تطبيق منطق إضافي لتجنب المزودين المحملين جداً
+        if selected_provider['load_percentage'] > 70:
+            # البحث عن مزود أقل حمولة
+            low_load_providers = [p for p in available_providers if p['load_percentage'] < 50]
+            if low_load_providers:
+                # اختيار المزود الأقل حمولة من المتاحين
+                selected_provider = min(low_load_providers, key=lambda x: x['load_percentage'])
+        
+        return selected_provider['id']
 
     async def acquire(self, preferred_provider: str = None):
-        """محسن: Rate limiting ذكي مع توزيع متوازن 50/50"""
+        """نظام محسن لمنع التحميل المفرط مع التوزيع العادل"""
         async with self.lock:
-            # Select provider with true 50/50 load balancing
+            # اختيار المزود مع نظام Round-Robin الذكي
             provider_id = preferred_provider or self.get_optimal_provider()
             
             if not provider_id or provider_id not in self.providers:
@@ -715,31 +724,93 @@ class MultiRPCRateLimiter:
                 if current_time - t < 10.0
             ]
             
-            # فحص الحمولة وتطبيق التأخير المناسب
+            # **فحص حماية من التحميل المفرط**
             config = provider_data['config']
             recent_count = len(provider_data['recent_requests'])
             load_percentage = (recent_count / config['max_requests_per_second']) * 100
             
-            # تأخير تدريجي بناءً على الحمولة
-            if load_percentage >= 90:
-                # حمولة عالية - تأخير أطول
-                wait_time = max(provider_data['current_delay'], 0.1)
+            # إذا كان المزود محمل جداً، حاول العثور على بديل
+            if load_percentage >= 85:
+                logger.warning(f"⚠️ {provider_id} overloaded ({load_percentage:.0f}%), searching for alternative")
+                
+                # البحث عن مزود بديل أقل حمولة
+                alternative_provider = self._find_least_loaded_provider(exclude=provider_id)
+                if alternative_provider:
+                    provider_id = alternative_provider
+                    provider_data = self.providers[provider_id]
+                    config = provider_data['config']
+                    recent_count = len(provider_data['recent_requests'])
+                    load_percentage = (recent_count / config['max_requests_per_second']) * 100
+                    logger.info(f"🔄 Switched to {provider_id} ({load_percentage:.0f}% load)")
+            
+            # تطبيق تأخير ذكي بناءً على الحمولة الحالية
+            if load_percentage >= 80:
+                # حمولة عالية جداً - تأخير أطول مع تحذير
+                wait_time = max(provider_data['current_delay'], 0.15)
+                logger.debug(f"🔴 {provider_id}: High load {load_percentage:.0f}%, waiting {wait_time:.3f}s")
                 await asyncio.sleep(wait_time)
-            elif load_percentage >= 70:
-                # حمولة متوسطة - تأخير قصير
-                wait_time = max(provider_data['current_delay'], 0.05)
+            elif load_percentage >= 60:
+                # حمولة متوسطة إلى عالية
+                wait_time = max(provider_data['current_delay'], 0.08)
                 await asyncio.sleep(wait_time)
-            elif load_percentage >= 50:
-                # حمولة منخفضة - تأخير أقل
+            elif load_percentage >= 40:
+                # حمولة متوسطة
+                wait_time = max(provider_data['current_delay'], 0.04)
+                await asyncio.sleep(wait_time)
+            elif load_percentage >= 20:
+                # حمولة منخفضة
                 wait_time = max(provider_data['current_delay'], 0.02)
                 await asyncio.sleep(wait_time)
-            # أقل من 50% - بدون تأخير إضافي
+            # أقل من 20% - بدون تأخير إضافي
             
             # تسجيل الطلب
             provider_data['recent_requests'].append(current_time)
             self.global_requests.append(current_time)
             
+            # تحديث إحصائيات الاستخدام لمراقبة التوزيع
+            self._update_usage_distribution(provider_id)
+            
             return provider_id, provider_data['config']['url']
+    
+    def _find_least_loaded_provider(self, exclude: str = None) -> str:
+        """العثور على المزود الأقل حمولة (باستثناء المزود المستبعد)"""
+        current_time = asyncio.get_event_loop().time()
+        best_provider = None
+        lowest_load = float('inf')
+        
+        for provider_id, provider_data in self.providers.items():
+            if provider_id == exclude or not provider_data['is_available']:
+                continue
+                
+            config = provider_data['config']
+            recent_count = len([t for t in provider_data['recent_requests'] if current_time - t < 1.0])
+            load_percentage = (recent_count / config['max_requests_per_second']) * 100
+            
+            # تفضيل المزودين بحالة صحية جيدة وحمولة منخفضة
+            adjusted_load = load_percentage * (1.0 - (provider_data['health_score'] / 200.0))
+            
+            if adjusted_load < lowest_load:
+                lowest_load = adjusted_load
+                best_provider = provider_id
+        
+        return best_provider
+    
+    def _update_usage_distribution(self, provider_id: str):
+        """تحديث إحصائيات توزيع الاستخدام"""
+        if not hasattr(self, '_usage_distribution'):
+            self._usage_distribution = {}
+        
+        self._usage_distribution[provider_id] = self._usage_distribution.get(provider_id, 0) + 1
+        
+        # طباعة تقرير التوزيع كل 100 طلب
+        total_requests = sum(self._usage_distribution.values())
+        if total_requests % 100 == 0:
+            distribution_info = []
+            for pid, count in self._usage_distribution.items():
+                percentage = (count / total_requests) * 100
+                distribution_info.append(f"{pid}:{percentage:.1f}%")
+            
+            logger.debug(f"📊 Usage distribution after {total_requests} requests: {', '.join(distribution_info)}")
 
     async def on_success(self, provider_id: str):
         """معالجة محسنة للطلبات الناجحة مع تحسين التوزيع"""
@@ -772,7 +843,7 @@ class MultiRPCRateLimiter:
                 logger.info(f"🟢 {provider_id}: Re-enabled due to improved health score")
 
     async def on_rate_limit_error(self, provider_id: str):
-        """معالجة محسنة لأخطاء Rate Limiting مع توزيع أفضل للحمل"""
+        """معالجة محسنة لأخطاء Rate Limiting مع حماية من التحميل المفرط"""
         if provider_id not in self.providers:
             return
             
@@ -783,25 +854,44 @@ class MultiRPCRateLimiter:
             current_time = asyncio.get_event_loop().time()
             provider_data['last_429_time'] = current_time
             
-            # تقليل أكثر تدرجاً في نقاط الصحة
-            provider_data['health_score'] = max(20.0, provider_data['health_score'] - 5.0)
+            # **تقليل أكثر صرامة في نقاط الصحة لمنع التحميل المفرط**
+            old_health = provider_data['health_score']
+            provider_data['health_score'] = max(10.0, provider_data['health_score'] - 8.0)
             
-            # زيادة تأخير أقل عدوانية
+            # زيادة التأخير بناءً على تكرار الأخطاء
             old_delay = provider_data['current_delay']
-            provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * 1.1)
+            multiplier = 1.2 if provider_data['fail_count'] % 3 == 0 else 1.1
+            provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * multiplier)
             
-            # إعادة تمكين أسرع مع حد صحة أقل
-            if provider_data['health_score'] < 30:
+            # **منطق تعطيل أكثر صرامة لحماية المزودين**
+            if provider_data['health_score'] < 40 or provider_data['fail_count'] >= 5:
                 provider_data['is_available'] = False
-                logger.warning(f"🔴 {provider_id}: Temporarily disabled due to rate limiting")
-                # إعادة تمكين بعد 10 ثوانٍ فقط
-                asyncio.create_task(self._re_enable_provider(provider_id, 10))
+                cooldown_time = min(30, 10 + (provider_data['fail_count'] * 2))  # زيادة وقت التبريد
+                
+                logger.warning(f"🔴 {provider_id}: Disabled due to rate limiting (health: {old_health:.0f}% → {provider_data['health_score']:.0f}%, fails: {provider_data['fail_count']})")
+                logger.info(f"🕐 {provider_id}: Will be re-enabled in {cooldown_time}s")
+                
+                # إعادة تمكين بعد فترة تبريد متدرجة
+                asyncio.create_task(self._re_enable_provider(provider_id, cooldown_time))
             
-            # إعادة تعيين العداد للتأكد من التوزيع المتوازن
-            if hasattr(self, '_provider_counter'):
-                self._provider_counter = 0
+            # **إعادة توزيع الحمولة فوراً**
+            self._rebalance_load_distribution()
             
-            logger.warning(f"🔴 {provider_id}: Rate limit hit! Delay: {old_delay:.3f}s → {provider_data['current_delay']:.3f}s")
+            logger.warning(f"🔴 {provider_id}: Rate limit hit! Health: {old_health:.0f}% → {provider_data['health_score']:.0f}%, Delay: {old_delay:.3f}s → {provider_data['current_delay']:.3f}s")
+    
+    def _rebalance_load_distribution(self):
+        """إعادة توزيع الحمولة عند حدوث مشاكل"""
+        # إعادة تعيين فهرس التناوب لضمان التوزيع العادل
+        if hasattr(self, '_provider_rotation_index'):
+            self._provider_rotation_index = 0
+        
+        # تنظيف إحصائيات الاستخدام لبداية جديدة
+        if hasattr(self, '_usage_distribution'):
+            # تقليل العدادات بدلاً من حذفها لضمان استمرارية البيانات
+            for provider_id in self._usage_distribution:
+                self._usage_distribution[provider_id] = int(self._usage_distribution[provider_id] * 0.8)
+        
+        logger.debug("🔄 Load distribution rebalanced due to provider issues")
 
     async def on_network_error(self, provider_id: str):
         """Handle network error"""
