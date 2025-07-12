@@ -625,14 +625,15 @@ class MultiRPCRateLimiter:
         logger.info(f"🔄 Initialized {len(self.providers)} RPC providers: {list(self.providers.keys())}")
 
     def get_optimal_provider(self) -> str:
-        """Select RPC provider using smart round-robin with load balancing"""
+        """نظام اختيار مزود ذكي ومتوازن تماماً بدون تفضيل أي مزود"""
         if not self.providers:
             return None
             
         current_time = asyncio.get_event_loop().time()
+        
+        # تحضير قائمة المزودين المتاحين مع معايير التوازن
         available_providers = []
         
-        # تنظيف وتحليل جميع المزودين
         for provider_id, provider_data in self.providers.items():
             config = provider_data['config']
             
@@ -642,62 +643,85 @@ class MultiRPCRateLimiter:
                 if current_time - t < 1.0
             ]
             
-            # حساب الحمولة الحالية والإحصائيات
-            current_load = len(provider_data['recent_requests'])
-            load_percentage = (current_load / config['max_requests_per_second']) * 100
-            
-            # حساب "وزن" المزود بناءً على عدة عوامل
-            usage_weight = provider_data['success_count'] + provider_data['fail_count']
-            health_factor = provider_data['health_score'] / 100.0
-            availability_factor = 1.0 if provider_data['is_available'] else 0.0
-            
-            # تجنب المزودين المحملين أكثر من 85% أو غير المتاحين
-            if load_percentage >= 85 or not provider_data['is_available']:
+            # تخطي المزودين غير المتاحين فقط
+            if not provider_data['is_available']:
                 continue
-                
+            
+            # حساب المعايير الأساسية
+            current_load = len(provider_data['recent_requests'])
+            max_capacity = config['max_requests_per_second']
+            load_percentage = (current_load / max_capacity) * 100
+            
+            # تخطي المزودين المحملين بأكثر من 90% فقط
+            if load_percentage >= 90:
+                continue
+            
+            # حساب نقاط التوازن
+            total_usage = provider_data['success_count'] + provider_data['fail_count']
+            health_score = provider_data['health_score']
+            
+            # معادلة التوازن الذكي - جميع المزودين يبدأون بنفس الأولوية
+            balance_score = (
+                (100 - load_percentage) * 0.4 +  # 40% حمولة حالية
+                health_score * 0.3 +             # 30% حالة صحية
+                (max_capacity - current_load) * 0.2 +  # 20% سعة متاحة
+                (1000 / max(1, total_usage)) * 0.1     # 10% توزيع عادل للاستخدام
+            )
+            
             available_providers.append({
                 'id': provider_id,
+                'balance_score': balance_score,
                 'load_percentage': load_percentage,
-                'health_score': provider_data['health_score'],
-                'health_factor': health_factor,
-                'availability_factor': availability_factor,
-                'recent_requests': current_load,
-                'usage_weight': usage_weight,
-                'max_capacity': config['max_requests_per_second'],
-                'capacity_available': config['max_requests_per_second'] - current_load
+                'health_score': health_score,
+                'current_load': current_load,
+                'max_capacity': max_capacity,
+                'total_usage': total_usage
             })
         
         if not available_providers:
-            # إذا لم يكن هناك مزودين متاحين، استخدم الأساسي كاحتياطي
-            return 'primary' if 'primary' in self.providers else list(self.providers.keys())[0]
+            # احتياطي: أول مزود متاح
+            for provider_id, provider_data in self.providers.items():
+                if provider_data['is_available']:
+                    return provider_id
+            return list(self.providers.keys())[0] if self.providers else None
         
-        # **نظام Round-Robin الذكي مع توزيع عادل**
-        # ترتيب المزودين حسب الاستخدام الإجمالي (الأقل استخداماً أولاً)
-        available_providers.sort(key=lambda x: (x['usage_weight'], x['load_percentage']))
+        # **خوارزمية التوزيع المتوازن الذكي**
         
-        # تطبيق Round-Robin مع إعطاء فرص متساوية لجميع المزودين
-        if not hasattr(self, '_provider_rotation_index'):
-            self._provider_rotation_index = 0
+        # إذا كان جميع المزودين متساويين تقريباً، استخدم Round-Robin صارم
+        scores = [p['balance_score'] for p in available_providers]
+        score_variance = max(scores) - min(scores)
         
-        # إعادة تعيين الفهرس إذا تجاوز عدد المزودين المتاحين
-        if self._provider_rotation_index >= len(available_providers):
-            self._provider_rotation_index = 0
+        if score_variance < 20:  # التفاوت قليل، استخدم Round-Robin
+            if not hasattr(self, '_smart_rotation_index'):
+                self._smart_rotation_index = 0
+            
+            # ترتيب أبجدي للحصول على نتائج متسقة
+            available_providers.sort(key=lambda x: x['id'])
+            
+            selected_index = self._smart_rotation_index % len(available_providers)
+            self._smart_rotation_index = (self._smart_rotation_index + 1) % len(available_providers)
+            
+            return available_providers[selected_index]['id']
         
-        # اختيار المزود بناءً على Round-Robin
-        selected_provider = available_providers[self._provider_rotation_index]
-        
-        # تحديث الفهرس للمرة القادمة
-        self._provider_rotation_index = (self._provider_rotation_index + 1) % len(available_providers)
-        
-        # تطبيق منطق إضافي لتجنب المزودين المحملين جداً
-        if selected_provider['load_percentage'] > 70:
-            # البحث عن مزود أقل حمولة
-            low_load_providers = [p for p in available_providers if p['load_percentage'] < 50]
-            if low_load_providers:
-                # اختيار المزود الأقل حمولة من المتاحين
-                selected_provider = min(low_load_providers, key=lambda x: x['load_percentage'])
-        
-        return selected_provider['id']
+        else:  # هناك تفاوت واضح، اختر الأفضل مع عشوائية طفيفة
+            # ترتيب حسب النقاط
+            available_providers.sort(key=lambda x: x['balance_score'], reverse=True)
+            
+            # اختيار من أفضل 50% من المزودين لضمان التوازن
+            top_providers = available_providers[:max(1, len(available_providers) // 2)]
+            
+            # إذا كان هناك مزود واحد فقط، اختره
+            if len(top_providers) == 1:
+                return top_providers[0]['id']
+            
+            # تطبيق Round-Robin على أفضل المزودين
+            if not hasattr(self, '_top_rotation_index'):
+                self._top_rotation_index = 0
+            
+            selected_index = self._top_rotation_index % len(top_providers)
+            self._top_rotation_index = (self._top_rotation_index + 1) % len(top_providers)
+            
+            return top_providers[selected_index]['id']
 
     async def acquire(self, preferred_provider: str = None):
         """نظام محسن لمنع التحميل المفرط مع التوزيع العادل"""
@@ -796,21 +820,36 @@ class MultiRPCRateLimiter:
         return best_provider
     
     def _update_usage_distribution(self, provider_id: str):
-        """تحديث إحصائيات توزيع الاستخدام"""
+        """تتبع توزيع الاستخدام مع ضمان العدالة"""
         if not hasattr(self, '_usage_distribution'):
+            # تهيئة التوزيع بنفس القيم لجميع المزودين
             self._usage_distribution = {}
+            for pid in self.providers.keys():
+                self._usage_distribution[pid] = 0
         
         self._usage_distribution[provider_id] = self._usage_distribution.get(provider_id, 0) + 1
         
-        # طباعة تقرير التوزيع كل 100 طلب
+        # مراقبة التوزيع العادل كل 50 طلب
         total_requests = sum(self._usage_distribution.values())
-        if total_requests % 100 == 0:
+        if total_requests % 50 == 0 and total_requests > 0:
             distribution_info = []
+            max_usage = max(self._usage_distribution.values())
+            min_usage = min(self._usage_distribution.values())
+            
             for pid, count in self._usage_distribution.items():
                 percentage = (count / total_requests) * 100
                 distribution_info.append(f"{pid}:{percentage:.1f}%")
             
-            logger.debug(f"📊 Usage distribution after {total_requests} requests: {', '.join(distribution_info)}")
+            # تحذير إذا كان التوزيع غير متوازن
+            usage_variance = max_usage - min_usage
+            balance_status = "⚖️ متوازن" if usage_variance <= 10 else "⚠️ غير متوازن"
+            
+            logger.debug(f"📊 توزيع الاستخدام ({balance_status}) بعد {total_requests} طلب: {', '.join(distribution_info)}")
+            
+            # إعادة توازن تلقائي إذا كان التوزيع غير عادل جداً
+            if usage_variance > 20 and total_requests > 100:
+                logger.info("🔄 تطبيق إعادة التوازن التلقائي بسبب التوزيع غير العادل")
+                self._rebalance_load_distribution()
 
     async def on_success(self, provider_id: str):
         """معالجة محسنة للطلبات الناجحة مع تحسين التوزيع"""
@@ -880,18 +919,44 @@ class MultiRPCRateLimiter:
             logger.warning(f"🔴 {provider_id}: Rate limit hit! Health: {old_health:.0f}% → {provider_data['health_score']:.0f}%, Delay: {old_delay:.3f}s → {provider_data['current_delay']:.3f}s")
     
     def _rebalance_load_distribution(self):
-        """إعادة توزيع الحمولة عند حدوث مشاكل"""
-        # إعادة تعيين فهرس التناوب لضمان التوزيع العادل
+        """إعادة توزيع الحمولة عند حدوث مشاكل - نظام ذكي ومتوازن"""
+        # إعادة تعيين جميع فهارس التناوب للبدء من جديد
+        if hasattr(self, '_smart_rotation_index'):
+            self._smart_rotation_index = 0
+        if hasattr(self, '_top_rotation_index'):
+            self._top_rotation_index = 0
         if hasattr(self, '_provider_rotation_index'):
             self._provider_rotation_index = 0
         
-        # تنظيف إحصائيات الاستخدام لبداية جديدة
+        # إعادة توزيع إحصائيات الاستخدام بطريقة متوازنة
         if hasattr(self, '_usage_distribution'):
-            # تقليل العدادات بدلاً من حذفها لضمان استمرارية البيانات
-            for provider_id in self._usage_distribution:
-                self._usage_distribution[provider_id] = int(self._usage_distribution[provider_id] * 0.8)
+            total_usage = sum(self._usage_distribution.values())
+            if total_usage > 0:
+                # إعادة توزيع الإحصائيات بشكل متساوٍ بين المزودين المتاحين
+                available_providers = [
+                    pid for pid, pdata in self.providers.items() 
+                    if pdata['is_available']
+                ]
+                
+                if available_providers:
+                    # توزيع متساوٍ للإحصائيات
+                    avg_usage = total_usage // len(available_providers)
+                    for provider_id in available_providers:
+                        self._usage_distribution[provider_id] = avg_usage
+                    
+                    # توزيع المتبقي
+                    remainder = total_usage % len(available_providers)
+                    for i in range(remainder):
+                        provider_id = available_providers[i]
+                        self._usage_distribution[provider_id] += 1
         
-        logger.debug("🔄 Load distribution rebalanced due to provider issues")
+        # إعادة ضبط نقاط الصحة للمزودين المتاحين لتكون متوازنة
+        for provider_id, provider_data in self.providers.items():
+            if provider_data['is_available'] and provider_data['health_score'] > 70:
+                # تطبيع نقاط الصحة لتجنب التحيز
+                provider_data['health_score'] = min(95, provider_data['health_score'] + 5)
+        
+        logger.debug("🔄 Smart load distribution rebalanced - all providers reset for fair distribution")
 
     async def on_network_error(self, provider_id: str):
         """Handle network error"""
