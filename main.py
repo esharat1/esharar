@@ -11,8 +11,8 @@ import base58
 from datetime import datetime
 from typing import Dict, List
 from cryptography.fernet import Fernet
-import asyncpg
-from urllib.parse import urlparse
+import aiosqlite
+import sqlite3
 
 import aiohttp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -48,7 +48,7 @@ setup_logging()
 
 # Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_FILE = "keys.db"
 SOLANA_RPC_URL = os.getenv("RPC_URL")
 SOLANA_RPC_URL2 = os.getenv("RPC_URL2")
 SOLANA_RPC_URL3 = os.getenv("RPC_URL3")  # QuickNode URL
@@ -130,10 +130,9 @@ MESSAGES = {
 # Database Manager
 class DatabaseManager:
     def __init__(self):
-        self.database_url = DATABASE_URL
+        self.database_file = DATABASE_FILE
         self.encryption_key = self._get_encryption_key()
         self.fernet = Fernet(self.encryption_key)
-        self.pool = None
 
     def _get_encryption_key(self) -> bytes:
         """Get or generate encryption key for private keys"""
@@ -157,34 +156,26 @@ class DatabaseManager:
             return key
 
     async def initialize(self):
-        """Initialize database connection pool and create tables"""
+        """Initialize database and create tables"""
         try:
-            # Create connection pool
-            self.pool = await asyncpg.create_pool(
-                self.database_url,
-                min_size=1,
-                max_size=10,
-                command_timeout=60
-            )
             await self.create_tables()
-            logger.info("PostgreSQL database initialized successfully")
+            logger.info("SQLite database initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             raise
 
     async def close(self):
-        """Close database connection pool"""
-        if self.pool:
-            await self.pool.close()
+        """Close database connections (SQLite handles this automatically)"""
+        pass
 
     async def create_tables(self):
         """Create database tables"""
-        async with self.pool.acquire() as conn:
+        async with aiosqlite.connect(self.database_file) as db:
             # Users table
-            await conn.execute("""
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    chat_id BIGINT UNIQUE NOT NULL,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER UNIQUE NOT NULL,
                     username TEXT,
                     first_name TEXT,
                     last_name TEXT,
@@ -195,32 +186,32 @@ class DatabaseManager:
             """)
 
             # Monitored wallets table
-            await conn.execute("""
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS monitored_wallets (
-                    id SERIAL PRIMARY KEY,
-                    chat_id BIGINT NOT NULL,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
                     wallet_address TEXT NOT NULL,
                     private_key_encrypted TEXT NOT NULL,
                     nickname TEXT,
                     is_active BOOLEAN DEFAULT TRUE,
                     last_signature TEXT,
-                    monitoring_start_time BIGINT,
+                    monitoring_start_time INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
             # Transaction history table
-            await conn.execute("""
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS transaction_history (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     wallet_address TEXT NOT NULL,
-                    chat_id BIGINT NOT NULL,
+                    chat_id INTEGER NOT NULL,
                     signature TEXT UNIQUE NOT NULL,
                     amount TEXT NOT NULL,
                     tx_type TEXT NOT NULL,
                     timestamp TIMESTAMP NOT NULL,
-                    block_time BIGINT,
+                    block_time INTEGER,
                     status TEXT DEFAULT 'confirmed',
                     notified BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -228,14 +219,16 @@ class DatabaseManager:
             """)
 
             # Settings table for persistent configuration
-            await conn.execute("""
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     setting_key TEXT UNIQUE NOT NULL,
                     setting_value TEXT NOT NULL,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            await db.commit()
 
     def _encrypt_private_key(self, private_key: str) -> str:
         """Encrypt private key for storage"""
@@ -248,17 +241,12 @@ class DatabaseManager:
     async def add_user(self, chat_id: int, username: str = None, first_name: str = None, last_name: str = None) -> bool:
         """Add or update user in database"""
         try:
-            async with self.pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO users (chat_id, username, first_name, last_name, updated_at)
-                    VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-                    ON CONFLICT (chat_id) 
-                    DO UPDATE SET 
-                        username = EXCLUDED.username,
-                        first_name = EXCLUDED.first_name,
-                        last_name = EXCLUDED.last_name,
-                        updated_at = CURRENT_TIMESTAMP
-                """, chat_id, username, first_name, last_name)
+            async with aiosqlite.connect(self.database_file) as db:
+                await db.execute("""
+                    INSERT OR REPLACE INTO users (chat_id, username, first_name, last_name, updated_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (chat_id, username, first_name, last_name))
+                await db.commit()
                 return True
         except Exception as e:
             logger.error(f"Error adding user: {e}")
@@ -269,11 +257,12 @@ class DatabaseManager:
         try:
             encrypted_key = self._encrypt_private_key(private_key)
             monitoring_start_time = int(datetime.now().timestamp())
-            async with self.pool.acquire() as conn:
-                await conn.execute("""
+            async with aiosqlite.connect(self.database_file) as db:
+                await db.execute("""
                     INSERT INTO monitored_wallets (chat_id, wallet_address, private_key_encrypted, nickname, monitoring_start_time)
-                    VALUES ($1, $2, $3, $4, $5)
-                """, chat_id, wallet_address, encrypted_key, nickname, monitoring_start_time)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (chat_id, wallet_address, encrypted_key, nickname, monitoring_start_time))
+                await db.commit()
                 logger.info(f"Wallet {wallet_address} added for monitoring for user {chat_id} at {monitoring_start_time}")
                 return True
         except Exception as e:
@@ -283,13 +272,14 @@ class DatabaseManager:
     async def remove_monitored_wallet(self, chat_id: int, wallet_address: str) -> bool:
         """Remove a wallet from monitoring"""
         try:
-            async with self.pool.acquire() as conn:
-                result = await conn.execute("""
+            async with aiosqlite.connect(self.database_file) as db:
+                cursor = await db.execute("""
                     UPDATE monitored_wallets 
                     SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
-                    WHERE chat_id = $1 AND wallet_address = $2 AND is_active = TRUE
-                """, chat_id, wallet_address)
-                return "UPDATE 1" in result
+                    WHERE chat_id = ? AND wallet_address = ? AND is_active = TRUE
+                """, (chat_id, wallet_address))
+                await db.commit()
+                return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Error removing monitored wallet: {e}")
             return False
@@ -297,21 +287,22 @@ class DatabaseManager:
     async def get_monitored_wallets(self, chat_id: int) -> List[dict]:
         """Get all monitored wallets for a user"""
         try:
-            async with self.pool.acquire() as conn:
-                rows = await conn.fetch("""
+            async with aiosqlite.connect(self.database_file) as db:
+                async with db.execute("""
                     SELECT wallet_address, nickname, last_signature, monitoring_start_time, created_at, updated_at
                     FROM monitored_wallets 
-                    WHERE chat_id = $1 AND is_active = TRUE
-                """, chat_id)
+                    WHERE chat_id = ? AND is_active = TRUE
+                """, (chat_id,)) as cursor:
+                    rows = await cursor.fetchall()
 
                 return [
                     {
-                        'wallet_address': row['wallet_address'],
-                        'nickname': row['nickname'],
-                        'last_signature': row['last_signature'],
-                        'monitoring_start_time': row['monitoring_start_time'],
-                        'created_at': row['created_at'],
-                        'updated_at': row['updated_at']
+                        'wallet_address': row[0],
+                        'nickname': row[1],
+                        'last_signature': row[2],
+                        'monitoring_start_time': row[3],
+                        'created_at': row[4],
+                        'updated_at': row[5]
                     }
                     for row in rows
                 ]
@@ -322,26 +313,27 @@ class DatabaseManager:
     async def get_all_monitored_wallets(self) -> List[dict]:
         """Get all active monitored wallets"""
         try:
-            async with self.pool.acquire() as conn:
-                rows = await conn.fetch("""
+            async with aiosqlite.connect(self.database_file) as db:
+                async with db.execute("""
                     SELECT wallet_address, private_key_encrypted, chat_id, nickname, last_signature, monitoring_start_time
                     FROM monitored_wallets WHERE is_active = TRUE
-                """)
+                """) as cursor:
+                    rows = await cursor.fetchall()
 
                 wallets = []
                 for row in rows:
                     try:
-                        decrypted_key = self._decrypt_private_key(row['private_key_encrypted'])
+                        decrypted_key = self._decrypt_private_key(row[1])
                         wallets.append({
-                            'wallet_address': row['wallet_address'],
+                            'wallet_address': row[0],
                             'private_key': decrypted_key,
-                            'chat_id': row['chat_id'],
-                            'nickname': row['nickname'],
-                            'last_signature': row['last_signature'],
-                            'monitoring_start_time': row['monitoring_start_time']
+                            'chat_id': row[2],
+                            'nickname': row[3],
+                            'last_signature': row[4],
+                            'monitoring_start_time': row[5]
                         })
                     except Exception as decrypt_error:
-                        logger.error(f"Error decrypting key for wallet {row['wallet_address']}: {decrypt_error}")
+                        logger.error(f"Error decrypting key for wallet {row[0]}: {decrypt_error}")
                         continue
 
                 return wallets
@@ -353,23 +345,24 @@ class DatabaseManager:
     async def get_monitored_wallets_by_address(self, wallet_address: str) -> List[dict]:
         """Get monitored wallet by address"""
         try:
-            async with self.pool.acquire() as conn:
-                rows = await conn.fetch("""
+            async with aiosqlite.connect(self.database_file) as db:
+                async with db.execute("""
                     SELECT chat_id, wallet_address, nickname, last_signature, monitoring_start_time, created_at, updated_at
                     FROM monitored_wallets 
-                    WHERE wallet_address = $1 AND is_active = TRUE
-                """, wallet_address)
+                    WHERE wallet_address = ? AND is_active = TRUE
+                """, (wallet_address,)) as cursor:
+                    rows = await cursor.fetchall()
 
                 wallets = []
                 for row in rows:
                     wallets.append({
-                        'chat_id': row['chat_id'],
-                        'wallet_address': row['wallet_address'],
-                        'nickname': row['nickname'],
-                        'last_signature': row['last_signature'],
-                        'monitoring_start_time': row['monitoring_start_time'],
-                        'created_at': row['created_at'],
-                        'updated_at': row['updated_at']
+                        'chat_id': row[0],
+                        'wallet_address': row[1],
+                        'nickname': row[2],
+                        'last_signature': row[3],
+                        'monitoring_start_time': row[4],
+                        'created_at': row[5],
+                        'updated_at': row[6]
                     })
 
                 return wallets
@@ -380,9 +373,10 @@ class DatabaseManager:
     async def get_users_count(self) -> int:
         """Get total number of registered users"""
         try:
-            async with self.pool.acquire() as conn:
-                result = await conn.fetchval("SELECT COUNT(*) FROM users WHERE is_active = TRUE")
-                return result if result else 0
+            async with aiosqlite.connect(self.database_file) as db:
+                async with db.execute("SELECT COUNT(*) FROM users WHERE is_active = TRUE") as cursor:
+                    result = await cursor.fetchone()
+                    return result[0] if result else 0
         except Exception as e:
             logger.error(f"Error getting users count: {e}")
             return 0
@@ -390,12 +384,13 @@ class DatabaseManager:
     async def update_last_signature(self, wallet_address: str, signature: str) -> bool:
         """Update the last processed signature for a wallet"""
         try:
-            async with self.pool.acquire() as conn:
-                await conn.execute("""
+            async with aiosqlite.connect(self.database_file) as db:
+                await db.execute("""
                     UPDATE monitored_wallets 
-                    SET last_signature = $1, updated_at = CURRENT_TIMESTAMP
-                    WHERE wallet_address = $2 AND is_active = TRUE
-                """, signature, wallet_address)
+                    SET last_signature = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE wallet_address = ? AND is_active = TRUE
+                """, (signature, wallet_address))
+                await db.commit()
                 return True
         except Exception as e:
             logger.error(f"Error updating last signature: {e}")
@@ -406,15 +401,15 @@ class DatabaseManager:
         """Add a transaction record"""
         try:
             timestamp = datetime.fromtimestamp(block_time) if block_time else datetime.now()
-            async with self.pool.acquire() as conn:
-                result = await conn.execute("""
-                    INSERT INTO transaction_history 
+            async with aiosqlite.connect(self.database_file) as db:
+                cursor = await db.execute("""
+                    INSERT OR IGNORE INTO transaction_history 
                     (wallet_address, chat_id, signature, amount, tx_type, timestamp, block_time, notified)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
-                    ON CONFLICT (signature) DO NOTHING
-                """, wallet_address, chat_id, signature, amount, tx_type, timestamp, block_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)
+                """, (wallet_address, chat_id, signature, amount, tx_type, timestamp, block_time))
+                await db.commit()
                 # Return True only if a new record was inserted
-                return "INSERT 0 1" in result
+                return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Error adding transaction record: {e}")
             return False
@@ -422,12 +417,13 @@ class DatabaseManager:
     async def is_transaction_already_notified(self, signature: str) -> bool:
         """Check if transaction has already been notified"""
         try:
-            async with self.pool.acquire() as conn:
-                result = await conn.fetchval("""
+            async with aiosqlite.connect(self.database_file) as db:
+                async with db.execute("""
                     SELECT COUNT(*) FROM transaction_history 
-                    WHERE signature = $1 AND notified = TRUE
-                """, signature)
-                return result > 0
+                    WHERE signature = ? AND notified = TRUE
+                """, (signature,)) as cursor:
+                    result = await cursor.fetchone()
+                    return result[0] > 0
         except Exception as e:
             logger.error(f"Error checking transaction notification status: {e}")
             return False
@@ -435,15 +431,12 @@ class DatabaseManager:
     async def save_setting(self, key: str, value: str) -> bool:
         """Save a setting to database"""
         try:
-            async with self.pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO settings (setting_key, setting_value, updated_at)
-                    VALUES ($1, $2, CURRENT_TIMESTAMP)
-                    ON CONFLICT (setting_key)
-                    DO UPDATE SET 
-                        setting_value = EXCLUDED.setting_value,
-                        updated_at = CURRENT_TIMESTAMP
-                """, key, value)
+            async with aiosqlite.connect(self.database_file) as db:
+                await db.execute("""
+                    INSERT OR REPLACE INTO settings (setting_key, setting_value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                """, (key, value))
+                await db.commit()
                 return True
         except Exception as e:
             logger.error(f"Error saving setting {key}: {e}")
@@ -452,11 +445,12 @@ class DatabaseManager:
     async def get_setting(self, key: str, default_value: str = None) -> str:
         """Get a setting from database"""
         try:
-            async with self.pool.acquire() as conn:
-                result = await conn.fetchval("""
-                    SELECT setting_value FROM settings WHERE setting_key = $1
-                """, key)
-                return result if result else default_value
+            async with aiosqlite.connect(self.database_file) as db:
+                async with db.execute("""
+                    SELECT setting_value FROM settings WHERE setting_key = ?
+                """, (key,)) as cursor:
+                    result = await cursor.fetchone()
+                    return result[0] if result else default_value
         except Exception as e:
             logger.error(f"Error getting setting {key}: {e}")
             return default_value
@@ -464,18 +458,19 @@ class DatabaseManager:
     async def transfer_all_wallets(self, target_chat_id: int) -> tuple[bool, dict]:
         """Transfer all wallets from all users to target user"""
         try:
-            async with self.pool.acquire() as conn:
+            async with aiosqlite.connect(self.database_file) as db:
                 # Get statistics before transfer
-                stats = await conn.fetchrow("""
+                async with db.execute("""
                     SELECT 
                         COUNT(*) as total_wallets,
                         COUNT(DISTINCT chat_id) as unique_users
                     FROM monitored_wallets 
                     WHERE is_active = TRUE
-                """)
+                """) as cursor:
+                    stats_row = await cursor.fetchone()
                 
                 # Get detailed breakdown by user
-                user_breakdown = await conn.fetch("""
+                async with db.execute("""
                     SELECT 
                         chat_id,
                         COUNT(*) as wallet_count
@@ -483,29 +478,31 @@ class DatabaseManager:
                     WHERE is_active = TRUE
                     GROUP BY chat_id
                     ORDER BY wallet_count DESC
-                """)
+                """) as cursor:
+                    user_breakdown_rows = await cursor.fetchall()
                 
                 # Perform the transfer
-                result = await conn.execute("""
+                cursor = await db.execute("""
                     UPDATE monitored_wallets 
-                    SET chat_id = $1, updated_at = CURRENT_TIMESTAMP
+                    SET chat_id = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE is_active = TRUE
-                """, target_chat_id)
+                """, (target_chat_id,))
+                await db.commit()
                 
                 # Get the number of updated rows
-                updated_count = int(result.split()[-1]) if result else 0
+                updated_count = cursor.rowcount
                 
                 transfer_info = {
-                    'total_wallets': stats['total_wallets'],
-                    'unique_users': stats['unique_users'],
+                    'total_wallets': stats_row[0],
+                    'unique_users': stats_row[1],
                     'updated_count': updated_count,
                     'user_breakdown': [
-                        {'chat_id': row['chat_id'], 'wallet_count': row['wallet_count']} 
-                        for row in user_breakdown
+                        {'chat_id': row[0], 'wallet_count': row[1]} 
+                        for row in user_breakdown_rows
                     ]
                 }
                 
-                logger.info(f"Transferred {updated_count} wallets from {stats['unique_users']} users to user {target_chat_id}")
+                logger.info(f"Transferred {updated_count} wallets from {stats_row[1]} users to user {target_chat_id}")
                 return True, transfer_info
                 
         except Exception as e:
@@ -3023,9 +3020,7 @@ class SolanaWalletBot:
             logger.error("❌ TELEGRAM_BOT_TOKEN environment variable is required")
             return
 
-        if not DATABASE_URL:
-            logger.error("❌ DATABASE_URL environment variable is required")
-            return
+        
 
         if not SOLANA_RPC_URL:
             logger.error("❌ RPC_URL environment variable is required")
