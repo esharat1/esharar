@@ -55,7 +55,7 @@ SOLANA_RPC_URL3 = os.getenv("RPC_URL3")  # QuickNode URL
 POLLING_INTERVAL = 3  # seconds - تحسين للوصول لهدف 60 ثانية
 MAX_MONITORED_WALLETS = 100000
 
-# Multi-RPC Configuration - نظام توزيع متوازن مع QuickNode و Helius
+# Multi-RPC Configuration - نظام توزيع متوازن مع 7 مزودين
 RPC_PROVIDERS = {
     'primary': {
         'url': SOLANA_RPC_URL,
@@ -80,6 +80,24 @@ RPC_PROVIDERS = {
         'name': 'Helius',
         'max_requests_per_second': 10,  # معدل Helius
         'priority': 1  # نفس الأولوية للتوزيع المتوازن
+    },
+    'alchemy_extra_1': {
+        'url': os.getenv("RPC_URL5"),
+        'name': 'Alchemy Extra 1',
+        'max_requests_per_second': 25,  # مزود Alchemy إضافي
+        'priority': 1  # نفس الأولوية للتوزيع المتوازن
+    },
+    'alchemy_extra_2': {
+        'url': os.getenv("RPC_URL6"),
+        'name': 'Alchemy Extra 2',
+        'max_requests_per_second': 25,  # مزود Alchemy إضافي
+        'priority': 1  # نفس الأولوية للتوزيع المتوازن
+    },
+    'alchemy_extra_3': {
+        'url': os.getenv("RPC_URL7"),
+        'name': 'Alchemy Extra 3',
+        'max_requests_per_second': 25,  # مزود Alchemy إضافي
+        'priority': 1  # نفس الأولوية للتوزيع المتوازن
     }
 }
 
@@ -93,7 +111,7 @@ BATCH_SIZE = 25     # حجم دفعة أقل لتوزيع أفضل
 BATCH_DELAY = 0.3   # تقليل التأخير بين الدفعات
 MAX_RETRIES = 2     # Keep retries low for speed
 TARGET_CYCLE_TIME = 60  # Target cycle completion time in seconds
-MAX_RPC_CALLS_PER_SECOND = 60  # Global rate limit for all providers combined (20+20+15+10-5 buffer)
+MAX_RPC_CALLS_PER_SECOND = 135  # Global rate limit for all providers combined (20+20+15+10+25+25+25-5 buffer)
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
