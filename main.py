@@ -3031,6 +3031,45 @@ class SolanaWalletBot:
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         self.application.add_error_handler(self.error_handler)
 
+    async def resume_monitoring_from_database(self):
+        """استئناف مراقبة جميع المحافظ المحفوظة في قاعدة البيانات"""
+        try:
+            # الحصول على جميع المحافظ المحفوظة
+            all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+            
+            if not all_wallets:
+                logger.info("📭 لا توجد محافظ محفوظة لاستئنافها")
+                return
+            
+            logger.info(f"🔄 استئناف مراقبة {len(all_wallets)} محفظة محفوظة...")
+            
+            # إضافة كل محفظة للمراقبة النشطة
+            resumed_count = 0
+            for wallet_info in all_wallets:
+                try:
+                    # إنشاء task key للمحفظة
+                    task_key = f"{wallet_info['wallet_address']}_{wallet_info['chat_id']}"
+                    
+                    # إضافة معلومات callback للمحفظة
+                    self.monitor.monitoring_tasks[task_key] = {
+                        'callback': self.send_transaction_notification,
+                        'chat_id': wallet_info['chat_id'],
+                        'wallet_address': wallet_info['wallet_address'],
+                        'type': 'wallet'
+                    }
+                    
+                    resumed_count += 1
+                    logger.debug(f"✅ استؤنفت مراقبة المحفظة: {wallet_info['wallet_address'][:8]}... للمستخدم {wallet_info['chat_id']}")
+                    
+                except Exception as wallet_error:
+                    logger.error(f"❌ خطأ في استئناف مراقبة المحفظة {wallet_info['wallet_address'][:8]}...: {wallet_error}")
+                    continue
+            
+            logger.info(f"✅ تم استئناف مراقبة {resumed_count}/{len(all_wallets)} محفظة بنجاح")
+            
+        except Exception as e:
+            logger.error(f"❌ خطأ في استئناف المراقبة من قاعدة البيانات: {e}")
+
     async def start_bot(self):
         """Start the bot"""
         # Validate required environment variables
@@ -3062,6 +3101,9 @@ class SolanaWalletBot:
 
             # Start monitoring session
             await self.monitor.start_session()
+
+            # استئناف مراقبة المحافظ المحفوظة
+            await self.resume_monitoring_from_database()
 
             # Start optimized global monitoring
             await self.monitor.start_global_monitoring(self.send_transaction_notification)
