@@ -1,0 +1,1778 @@
+{
+  "_comment": "إعدادات الشبكات المركزية — يُقرأ من index.js عبر require('./chains.json')",
+  "okx": {
+    "chain_names": {
+      "0": "Bitcoin",
+      "1": "Ethereum",
+      "2": "Litecoin",
+      "3": "Dogecoin",
+      "5": "Dash",
+      "10": "Optimism",
+      "14": "Flare",
+      "25": "Cronos",
+      "56": "BNB Chain",
+      "61": "Ethereum Classic",
+      "100": "Gnosis",
+      "137": "Polygon",
+      "143": "Monad",
+      "145": "Bitcoin Cash",
+      "169": "Manta Pacific",
+      "195": "TRON",
+      "196": "X Layer",
+      "204": "opBNB",
+      "223": "B2 Network",
+      "250": "Fantom",
+      "288": "Boba Network",
+      "321": "KCC",
+      "324": "zkSync Era",
+      "369": "PulseChain",
+      "501": "Solana",
+      "648": "Endurance",
+      "784": "SUI",
+      "1030": "Conflux",
+      "1088": "Metis",
+      "1101": "Polygon zkEVM",
+      "1111": "WEMIX",
+      "1116": "Core",
+      "1284": "Moonbeam",
+      "1285": "Moonriver",
+      "1625": "Gravity",
+      "2020": "Ronin",
+      "2222": "Kava",
+      "4200": "Merlin",
+      "5000": "Mantle",
+      "8217": "Kaia",
+      "8453": "Base",
+      "10001": "EthPoW",
+      "11235": "Haqq",
+      "13371": "Immutable zkEVM",
+      "34443": "Mode",
+      "42161": "Arbitrum",
+      "42170": "Arbitrum Nova",
+      "42220": "Celo",
+      "43114": "Avalanche",
+      "59144": "Linea",
+      "60808": "BOB",
+      "81457": "Blast",
+      "94168": "Lumi Layer3",
+      "167000": "Taiko",
+      "200901": "Bitlayer",
+      "534352": "Scroll",
+      "11155111": "Sepolia",
+      "1313161554": "Aurora"
+    },
+    "evm_chains": [
+      "1",
+      "10",
+      "56",
+      "100",
+      "137",
+      "250",
+      "324",
+      "1101",
+      "1284",
+      "8453",
+      "25",
+      "42161",
+      "42220",
+      "43114",
+      "59144",
+      "81457",
+      "534352",
+      "61",
+      "14",
+      "8217",
+      "321",
+      "1088",
+      "288",
+      "1313161554",
+      "2020",
+      "1285",
+      "10001",
+      "1116",
+      "42170",
+      "1030",
+      "648",
+      "2222",
+      "369",
+      "5000",
+      "204",
+      "11155111",
+      "11235",
+      "169",
+      "1111",
+      "4200",
+      "13371",
+      "196",
+      "167000",
+      "60808",
+      "34443",
+      "223",
+      "200901",
+      "1625",
+      "94168",
+      "143"
+    ],
+    "price_tickers": {
+      "BTC": "BTC-USDT",
+      "LTC": "LTC-USDT",
+      "DOGE": "DOGE-USDT",
+      "DASH": "DASH-USDT",
+      "BCH": "BCH-USDT",
+      "ZEC": "ZEC-USDT",
+      "TRX": "TRX-USDT",
+      "SUI": "SUI-USDT",
+      "SOL": "SOL-USDT",
+      "ECLIPSE": "ETH-USDT",
+      "SONIC_SVM": "SOL-USDT",
+      "SOON": "ETH-USDT",
+      "ATOM": "ATOM-USDT",
+      "XRP": "XRP-USDT",
+      "DOT": "DOT-USDT",
+      "KSM": "KSM-USDT",
+      "VET": "VET-USDT",
+      "APT": "APT-USDT",
+      "LUNC": "LUNC-USDT",
+      "NTRN": "NTRN-USDT",
+      "DYDX": "DYDX-USDT",
+      "BAND": "BAND-USDT",
+      "FETCH": "FET-USDT",
+      "XPRT": "XPRT-USDT",
+      "SEI": "SEI-USDT",
+      "INJ": "INJ-USDT",
+      "XLM": "XLM-USDT",
+      "ALGO": "ALGO-USDT",
+      "NEAR": "NEAR-USDT",
+      "EGLD": "EGLD-USDT",
+      "HBAR": "HBAR-USDT",
+      "FIL": "FIL-USDT",
+      "HMY": "ONE-USDT",
+      "IOTX": "IOTX-USDT",
+      "ZETA": "ZETA-USDT",
+      "SONIC": "S-USDT",
+      "EWT": "EWT-USDT",
+      "FUSE": "FUSE-USDT",
+      "WAN": "WAN-USDT",
+      "CANTO": "CANTO-USDT",
+      "SYS": "SYS-USDT",
+      "VIC": "VIC-USDT",
+      "TLOS": "TLOS-USDT",
+      "ASTR": "ASTR-USDT",
+      "RON": "RON-USDT",
+      "OSMO": "OSMO-USDT",
+      "KAVA": "KAVA-USDT",
+      "KUJI": "KUJI-USDT",
+      "AXL": "AXL-USDT",
+      "OKT": "OKT-USDT",
+      "NIBI": "NIBI-USDT",
+      "LUNA": "LUNA-USDT",
+      "SEI_EVM": "SEI-USDT",
+      "TON": "TON-USDT",
+      "XTZ": "XTZ-USDT",
+      "WAVES": "WAVES-USDT",
+      "STX": "STX-USDT",
+      "ZIL": "ZIL-USDT"
+    }
+  },
+  "cmd14_chains": [
+    "TAO_EVM",
+    "IRIS",
+    "VTRU",
+    "SCAI",
+    "DYM",
+    "SDN",
+    "SCRT",
+    "EXP",
+    "BTC",
+    "BTC-TAP",
+    "TRX",
+    "DASH",
+    "TON",
+    "TNET",
+    "ACA_EVM",
+    "CET",
+    "STN",
+    "CRE",
+    "BCNA",
+    "NIBI",
+    "NEAR",
+    "EGLD",
+    "ZKFAIR",
+    "ETN",
+    "STX",
+    "SIX",
+    "WATER",
+    "ADA"
+  ],
+  "cosmos": {
+    "prefixes": [
+      {
+        "type": "ATOM",
+        "label": "Cosmos",
+        "pfx": "cosmos"
+      },
+      {
+        "type": "OSMO",
+        "label": "Osmosis",
+        "pfx": "osmo"
+      },
+      {
+        "type": "SEI",
+        "label": "Sei",
+        "pfx": "sei"
+      },
+      {
+        "type": "TIA",
+        "label": "Celestia",
+        "pfx": "celestia"
+      },
+      {
+        "type": "AKT",
+        "label": "Akash",
+        "pfx": "akash"
+      },
+      {
+        "type": "JUNO",
+        "label": "Juno",
+        "pfx": "juno"
+      },
+      {
+        "type": "STARS",
+        "label": "Stargaze",
+        "pfx": "stars"
+      },
+      {
+        "type": "KAVA",
+        "label": "Kava",
+        "pfx": "kava"
+      },
+      {
+        "type": "SCRT",
+        "label": "Secret",
+        "pfx": "secret"
+      },
+      {
+        "type": "EVMOS",
+        "label": "Evmos",
+        "pfx": "evmos"
+      },
+      {
+        "type": "NTRN",
+        "label": "Neutron",
+        "pfx": "neutron"
+      },
+      {
+        "type": "DYDX",
+        "label": "dYdX",
+        "pfx": "dydx"
+      },
+      {
+        "type": "STRD",
+        "label": "Stride",
+        "pfx": "stride"
+      },
+      {
+        "type": "BAND",
+        "label": "Band",
+        "pfx": "band"
+      },
+      {
+        "type": "UMEE",
+        "label": "Umee",
+        "pfx": "umee"
+      },
+      {
+        "type": "REGEN",
+        "label": "Regen",
+        "pfx": "regen"
+      },
+      {
+        "type": "IRIS",
+        "label": "IRISnet",
+        "pfx": "iaa"
+      },
+      {
+        "type": "FETCH",
+        "label": "FetchAI",
+        "pfx": "fetch"
+      },
+      {
+        "type": "CMDX",
+        "label": "Comdex",
+        "pfx": "comdex"
+      },
+      {
+        "type": "XPRT",
+        "label": "Persistence",
+        "pfx": "persistence"
+      },
+      {
+        "type": "CRE",
+        "label": "Crescent",
+        "pfx": "cre"
+      },
+      {
+        "type": "ROWAN",
+        "label": "Sifchain",
+        "pfx": "sif"
+      },
+      {
+        "type": "BCNA",
+        "label": "BitCanna",
+        "pfx": "bcna"
+      },
+      {
+        "type": "NIBI",
+        "label": "Nibiru",
+        "pfx": "nibi"
+      },
+      {
+        "type": "KUJI",
+        "label": "Kujira",
+        "pfx": "kujira"
+      },
+      {
+        "type": "LUNA",
+        "label": "Terra2",
+        "pfx": "terra"
+      },
+      {
+        "type": "AXL",
+        "label": "Axelar",
+        "pfx": "axelar"
+      },
+      {
+        "type": "ARCH",
+        "label": "Archway",
+        "pfx": "archway"
+      },
+      {
+        "type": "DVPN",
+        "label": "Sentinel",
+        "pfx": "sent"
+      },
+      {
+        "type": "HUAHUA",
+        "label": "Chihuahua",
+        "pfx": "chihuahua"
+      },
+      {
+        "type": "CHEQD",
+        "label": "Cheqd",
+        "pfx": "cheqd"
+      },
+      {
+        "type": "MNTL",
+        "label": "AssetMantle",
+        "pfx": "mantle"
+      }
+    ],
+    "chains": {
+      "OSMO": {
+        "chain": "osmosis",
+        "denom": "uosmo",
+        "dec": 6
+      },
+      "SEI": {
+        "chain": "sei",
+        "denom": "usei",
+        "dec": 6
+      },
+      "TIA": {
+        "chain": "celestia",
+        "denom": "utia",
+        "dec": 6
+      },
+      "AKT": {
+        "chain": "akash",
+        "denom": "uakt",
+        "dec": 6
+      },
+      "JUNO": {
+        "chain": "juno",
+        "denom": "ujuno",
+        "dec": 6
+      },
+      "STARS": {
+        "chain": "stargaze",
+        "denom": "ustars",
+        "dec": 6,
+        "eps": [
+          "https://stargaze-api.polkachu.com"
+        ]
+      },
+      "KAVA": {
+        "chain": "kava",
+        "denom": "ukava",
+        "dec": 6
+      },
+      "SCRT": {
+        "chain": "secretnetwork",
+        "denom": "uscrt",
+        "dec": 6,
+        "eps": [
+          "https://secretnetwork-api.lavenderfive.com"
+        ]
+      },
+      "EVMOS": {
+        "chain": "evmos",
+        "denom": "aevmos",
+        "dec": 18,
+        "disabled": true
+      },
+      "INJ": {
+        "chain": "injective",
+        "denom": "inj",
+        "dec": 18
+      },
+      "NTRN": {
+        "chain": "neutron",
+        "denom": "untrn",
+        "dec": 6
+      },
+      "DYDX": {
+        "chain": "dydx",
+        "denom": "adydx",
+        "dec": 18
+      },
+      "STRD": {
+        "chain": "stride",
+        "denom": "ustrd",
+        "dec": 6,
+        "eps": [
+          "https://stride-api.polkachu.com"
+        ]
+      },
+      "BAND": {
+        "chain": "bandchain",
+        "denom": "uband",
+        "dec": 6,
+        "eps": [
+          "https://band-api.polkachu.com"
+        ]
+      },
+      "UMEE": {
+        "chain": "umee",
+        "denom": "uumee",
+        "dec": 6,
+        "eps": [
+          "https://umee-api.polkachu.com"
+        ]
+      },
+      "REGEN": {
+        "chain": "regen",
+        "denom": "uregen",
+        "dec": 6,
+        "eps": [
+          "https://regen-api.polkachu.com"
+        ]
+      },
+      "IRIS": {
+        "chain": "irisnet",
+        "denom": "uiris",
+        "dec": 6,
+        "eps": [
+          "https://rest.cosmos.directory/irisnet"
+        ]
+      },
+      "FETCH": {
+        "chain": "fetchhub",
+        "denom": "afet",
+        "dec": 18,
+        "eps": [
+          "https://fetch-api.polkachu.com"
+        ]
+      },
+      "CMDX": {
+        "chain": "comdex",
+        "denom": "ucmdx",
+        "dec": 6,
+        "disabled": true
+      },
+      "XPRT": {
+        "chain": "persistence",
+        "denom": "uxprt",
+        "dec": 6,
+        "eps": [
+          "https://persistence-api.polkachu.com"
+        ]
+      },
+      "CRE": {
+        "chain": "crescent",
+        "denom": "ucre",
+        "dec": 6,
+        "eps": [
+          "https://crescent-api.polkachu.com"
+        ]
+      },
+      "ROWAN": {
+        "chain": "sifchain",
+        "denom": "rowan",
+        "dec": 18,
+        "eps": [
+          "https://sifchain-api.polkachu.com"
+        ]
+      },
+      "BCNA": {
+        "chain": "bitcanna",
+        "denom": "ubcna",
+        "dec": 6,
+        "eps": [
+          "https://bitcanna-api.polkachu.com"
+        ]
+      },
+      "NIBI": {
+        "chain": "nibiru",
+        "denom": "unibi",
+        "dec": 6,
+        "eps": [
+          "https://nibiru-api.polkachu.com"
+        ]
+      },
+      "KUJI": {
+        "chain": "kujira",
+        "denom": "ukuji",
+        "dec": 6,
+        "eps": [
+          "https://kujira-api.polkachu.com"
+        ]
+      },
+      "LUNA": {
+        "chain": "terra2",
+        "denom": "uluna",
+        "dec": 6,
+        "eps": [
+          "https://terra-api.polkachu.com"
+        ]
+      },
+      "AXL": {
+        "chain": "axelar",
+        "denom": "uaxl",
+        "dec": 6
+      },
+      "ARCH": {
+        "chain": "archway",
+        "denom": "aarch",
+        "dec": 18,
+        "eps": [
+          "https://archway-api.polkachu.com"
+        ]
+      },
+      "DVPN": {
+        "chain": "sentinel",
+        "denom": "udvpn",
+        "dec": 6,
+        "eps": [
+          "https://sentinel-api.polkachu.com"
+        ]
+      },
+      "HUAHUA": {
+        "chain": "chihuahua",
+        "denom": "uhuahua",
+        "dec": 6,
+        "eps": [
+          "https://chihuahua-api.polkachu.com"
+        ]
+      },
+      "CHEQD": {
+        "chain": "cheqd",
+        "denom": "ncheq",
+        "dec": 9,
+        "eps": [
+          "https://cheqd-api.polkachu.com"
+        ]
+      },
+      "MNTL": {
+        "chain": "assetmantle",
+        "denom": "umntl",
+        "dec": 6,
+        "eps": [
+          "https://assetmantle-api.polkachu.com"
+        ]
+      }
+    }
+  },
+  "substrate": {
+    "chains": {
+      "ASTR": {
+        "eps": [
+          "https://rpc.astar.network"
+        ],
+        "dec": 18
+      },
+      "ACA": {
+        "eps": [
+          "https://acala-rpc-0.aca-api.network"
+        ],
+        "dec": 12
+      },
+      "CFG": {
+        "eps": [
+          "https://fullnode.centrifuge.io"
+        ],
+        "dec": 18
+      }
+    }
+  },
+  "evm_nets": [
+    {
+      "type": "OKT",
+      "label": "OKX-Chain"
+    },
+    {
+      "type": "HMY",
+      "label": "Harmony"
+    },
+    {
+      "type": "IOTX",
+      "label": "IoTeX"
+    },
+    {
+      "type": "FRAX",
+      "label": "Fraxtal"
+    },
+    {
+      "type": "ZETA",
+      "label": "ZetaChain"
+    },
+    {
+      "type": "SONIC",
+      "label": "Sonic"
+    },
+    {
+      "type": "VIC",
+      "label": "Viction"
+    },
+    {
+      "type": "EWT",
+      "label": "EnergyWeb"
+    },
+    {
+      "type": "EMERALD",
+      "label": "Oasis-Emerald"
+    },
+    {
+      "type": "FUSE",
+      "label": "Fuse"
+    },
+    {
+      "type": "DFK",
+      "label": "DFK-Chain"
+    },
+    {
+      "type": "WAN",
+      "label": "Wanchain"
+    },
+    {
+      "type": "ZKFAIR",
+      "label": "zkFair"
+    },
+    {
+      "type": "DEGEN",
+      "label": "Degen"
+    },
+    {
+      "type": "CYBER",
+      "label": "CyberConnect"
+    },
+    {
+      "type": "SYS",
+      "label": "Syscoin"
+    },
+    {
+      "type": "SAPPHIRE",
+      "label": "Oasis-Sapphire"
+    },
+    {
+      "type": "NEON",
+      "label": "Neon-EVM"
+    },
+    {
+      "type": "PLATON",
+      "label": "PlatON"
+    },
+    {
+      "type": "FIL_EVM",
+      "label": "Filecoin-EVM"
+    },
+    {
+      "type": "ROLLUX",
+      "label": "Rollux"
+    },
+    {
+      "type": "VANA",
+      "label": "Vana"
+    },
+    {
+      "type": "ACA_EVM",
+      "label": "Acala-EVM"
+    },
+    {
+      "type": "MEER",
+      "label": "Qitmeer"
+    },
+    {
+      "type": "VTRU",
+      "label": "Vitruveo"
+    },
+    {
+      "type": "NERO",
+      "label": "Nerochain"
+    },
+    {
+      "type": "TNET",
+      "label": "Tenet"
+    },
+    {
+      "type": "MAT",
+      "label": "MatChain"
+    },
+    {
+      "type": "ELY",
+      "label": "Elysium"
+    },
+    {
+      "type": "AIA",
+      "label": "AIA-Chain"
+    },
+    {
+      "type": "VINU",
+      "label": "VinuChain"
+    },
+    {
+      "type": "CAM",
+      "label": "Camino"
+    },
+    {
+      "type": "GLQ",
+      "label": "GraphLinq"
+    },
+    {
+      "type": "GLUE",
+      "label": "Glue"
+    },
+    {
+      "type": "THAI",
+      "label": "ThaiChain"
+    },
+    {
+      "type": "GL1",
+      "label": "GenesisL1"
+    },
+    {
+      "type": "SCAI",
+      "label": "SCAI-Network"
+    },
+    {
+      "type": "STN",
+      "label": "Smart-Trade-Networks"
+    },
+    {
+      "type": "RBN",
+      "label": "Redbelly"
+    },
+    {
+      "type": "ABEY",
+      "label": "AbeyChain"
+    },
+    {
+      "type": "IDC",
+      "label": "IdChain"
+    },
+    {
+      "type": "CO2",
+      "label": "CO2-Ledger"
+    },
+    {
+      "type": "LYC",
+      "label": "LycanChain"
+    },
+    {
+      "type": "DSC",
+      "label": "DSC"
+    },
+    {
+      "type": "MAAL",
+      "label": "MAAL-Chain"
+    },
+    {
+      "type": "EVOZ",
+      "label": "EvoZ"
+    },
+    {
+      "type": "RBA",
+      "label": "Roburna"
+    },
+    {
+      "type": "GZN",
+      "label": "GZN"
+    },
+    {
+      "type": "EIOB",
+      "label": "EIOB"
+    },
+    {
+      "type": "AME",
+      "label": "AmeChain"
+    },
+    {
+      "type": "EVA",
+      "label": "EVA"
+    },
+    {
+      "type": "XSC",
+      "label": "XSC"
+    },
+    {
+      "type": "WATER",
+      "label": "Waterfall"
+    },
+    {
+      "type": "RAMA",
+      "label": "Ramestta"
+    },
+    {
+      "type": "IOST",
+      "label": "IOST-EVM"
+    },
+    {
+      "type": "DILL",
+      "label": "Dill"
+    },
+    {
+      "type": "JUMBO",
+      "label": "JumboChain"
+    },
+    {
+      "type": "SEI_EVM",
+      "label": "Sei-EVM"
+    },
+    {
+      "type": "MEZO",
+      "label": "Mezo"
+    },
+    {
+      "type": "STABLE",
+      "label": "Stable"
+    },
+    {
+      "type": "ENIAC",
+      "label": "Eniac"
+    },
+    {
+      "type": "MEGA",
+      "label": "MegaETH"
+    },
+    {
+      "type": "PLUME",
+      "label": "Plume"
+    },
+    {
+      "type": "WLD",
+      "label": "World Chain"
+    },
+    {
+      "type": "IP",
+      "label": "Story"
+    },
+    {
+      "type": "FLOW",
+      "label": "Flow EVM"
+    },
+    {
+      "type": "INK",
+      "label": "Ink"
+    },
+    {
+      "type": "KAT",
+      "label": "Katana"
+    },
+    {
+      "type": "SONEIUM",
+      "label": "Soneium"
+    },
+    {
+      "type": "BLEND",
+      "label": "Fluent"
+    },
+    {
+      "type": "HEMI",
+      "label": "Hemi"
+    },
+    {
+      "type": "BERA",
+      "label": "Berachain"
+    },
+    {
+      "type": "ZKCRO",
+      "label": "zkEVM Cronos"
+    },
+    {
+      "type": "ABS",
+      "label": "Abstract"
+    },
+    {
+      "type": "PLASMA",
+      "label": "Plasma"
+    },
+    {
+      "type": "AIL",
+      "label": "AILayer"
+    },
+    {
+      "type": "TAC",
+      "label": "TAC"
+    },
+    {
+      "type": "ZG",
+      "label": "0G"
+    },
+    {
+      "type": "IOTA_EVM",
+      "label": "IOTA EVM"
+    },
+    {
+      "type": "LSK",
+      "label": "Lisk"
+    },
+    {
+      "type": "CHZ",
+      "label": "Chiliz"
+    },
+    {
+      "type": "XTZ_EVM",
+      "label": "Etherlink"
+    },
+    {
+      "type": "NIBI_EVM",
+      "label": "Nibiru EVM"
+    },
+    {
+      "type": "BTC_BOT",
+      "label": "Botanix"
+    },
+    {
+      "type": "BEAM",
+      "label": "Beam"
+    },
+    {
+      "type": "HELA",
+      "label": "HeLa"
+    },
+    {
+      "type": "ZRC",
+      "label": "Zircuit"
+    },
+    {
+      "type": "THETA",
+      "label": "Theta"
+    },
+    {
+      "type": "APE",
+      "label": "ApeChain"
+    },
+    {
+      "type": "TT",
+      "label": "ThunderCore"
+    },
+    {
+      "type": "GOAT",
+      "label": "GOAT Network"
+    },
+    {
+      "type": "REYA",
+      "label": "Reya"
+    },
+    {
+      "type": "BTT",
+      "label": "BitTorrent"
+    },
+    {
+      "type": "ZORA",
+      "label": "Zora"
+    },
+    {
+      "type": "ETH_SWELL",
+      "label": "Swell"
+    },
+    {
+      "type": "PEAQ",
+      "label": "Peaq"
+    },
+    {
+      "type": "NRG",
+      "label": "Energi"
+    },
+    {
+      "type": "TAO_EVM",
+      "label": "Bittensor EVM"
+    },
+    {
+      "type": "SDN",
+      "label": "Shiden"
+    },
+    {
+      "type": "SOPH",
+      "label": "Sophon"
+    },
+    {
+      "type": "ETN",
+      "label": "Electroneum"
+    },
+    {
+      "type": "XFI",
+      "label": "CrossFi"
+    },
+    {
+      "type": "XRPL_EVM",
+      "label": "XRPL EVM"
+    },
+    {
+      "type": "RWA",
+      "label": "AssetChain"
+    },
+    {
+      "type": "LENS",
+      "label": "Lens"
+    },
+    {
+      "type": "XPLA",
+      "label": "XPLA"
+    },
+    {
+      "type": "ONT",
+      "label": "Ontology EVM"
+    },
+    {
+      "type": "LYX",
+      "label": "LUKSO"
+    },
+    {
+      "type": "SGB",
+      "label": "Songbird"
+    },
+    {
+      "type": "XDC",
+      "label": "XDC"
+    },
+    {
+      "type": "META",
+      "label": "Metadium"
+    },
+    {
+      "type": "GO",
+      "label": "GoChain"
+    },
+    {
+      "type": "RBTC",
+      "label": "RSK"
+    },
+    {
+      "type": "CET",
+      "label": "CoinEx"
+    },
+    {
+      "type": "RING",
+      "label": "Darwinia"
+    },
+    {
+      "type": "KUB",
+      "label": "Bitkub"
+    },
+    {
+      "type": "MTR",
+      "label": "Meter"
+    },
+    {
+      "type": "GT",
+      "label": "GateChain"
+    },
+    {
+      "type": "VLX",
+      "label": "Velas"
+    },
+    {
+      "type": "RLC",
+      "label": "iExec"
+    },
+    {
+      "type": "HSK",
+      "label": "HashKey"
+    },
+    {
+      "type": "SMR",
+      "label": "Shimmer"
+    },
+    {
+      "type": "AIOZ",
+      "label": "AIOZ"
+    },
+    {
+      "type": "SIX",
+      "label": "SIX Protocol"
+    },
+    {
+      "type": "U2U",
+      "label": "U2U"
+    },
+    {
+      "type": "UNI_EVM",
+      "label": "Unichain"
+    },
+    {
+      "type": "DEL",
+      "label": "Decimal"
+    },
+    {
+      "type": "EXP",
+      "label": "Expanse"
+    },
+    {
+      "type": "CANTO",
+      "label": "Canto"
+    },
+    {
+      "type": "TLOS",
+      "label": "Telos EVM"
+    },
+    {
+      "type": "DYM",
+      "label": "Dymension"
+    },
+    {
+      "type": "SAGA",
+      "label": "Saga"
+    },
+    {
+      "type": "ESC",
+      "label": "Elastos Smart Chain"
+    },
+    {
+      "type": "OMAX",
+      "label": "Omax"
+    },
+    {
+      "type": "MORPH",
+      "label": "Morph"
+    },
+    {
+      "type": "ZKLINK",
+      "label": "zkLink Nova"
+    },
+    {
+      "type": "MONAD",
+      "label": "Monad"
+    }
+  ],
+  "evm_rpc": {
+    "OKT": [
+      "https://exchainrpc.okex.org"
+    ],
+    "HMY": [
+      "https://a.api.s0.t.hmny.io",
+      "https://api.harmony.one"
+    ],
+    "IOTX": [
+      "https://babel-api.mainnet.iotex.io"
+    ],
+    "FRAX": [
+      "https://fraxtal-rpc.publicnode.com",
+      "https://rpc.frax.com"
+    ],
+    "ZETA": [
+      "https://zetachain-evm.blockpi.network/v1/rpc/public"
+    ],
+    "SONIC": [
+      "https://sonic-rpc.publicnode.com",
+      "https://rpc.soniclabs.com"
+    ],
+    "VIC": [
+      "https://rpc.viction.xyz",
+      "https://viction.blockpi.network/v1/rpc/public"
+    ],
+    "EWT": [
+      "https://rpc.energyweb.org"
+    ],
+    "EMERALD": [
+      "https://emerald.oasis.io"
+    ],
+    "FUSE": [
+      "https://rpc.fuse.io"
+    ],
+    "DFK": [
+      "https://subnets.avax.network/defi-kingdoms/dfk-chain/rpc"
+    ],
+    "WAN": [
+      "https://gwan-ssl.wandevs.org:46891/",
+      "https://gwan-ssl.wandevs.org:56891"
+    ],
+    "ZKFAIR": [
+      "https://rpc.zkfair.io"
+    ],
+    "DEGEN": [
+      "https://rpc.degen.tips"
+    ],
+    "CYBER": [
+      "https://rpc.cyber.co/",
+      "https://cyber.alt.technology"
+    ],
+    "SYS": [
+      "https://syscoin-evm.publicnode.com",
+      "https://rpc.syscoin.org"
+    ],
+    "SAPPHIRE": [
+      "https://sapphire.oasis.io"
+    ],
+    "NEON": [
+      "https://neon-evm.drpc.org",
+      "https://neon-proxy-mainnet.solana.p2p.org"
+    ],
+    "PLATON": [
+      "https://openapi2.platon.network/rpc",
+      "https://openapi.platon.network/rpc"
+    ],
+    "FIL_EVM": [
+      "https://api.node.glif.io/rpc/v1",
+      "https://rpc.ankr.com/filecoin"
+    ],
+    "MEGA": [
+      "https://mainnet.megaeth.com/rpc"
+    ],
+    "PLUME": [
+      "https://rpc.plume.org"
+    ],
+    "WLD": [
+      "https://worldchain-mainnet.g.alchemy.com/public"
+    ],
+    "IP": [
+      "https://mainnet.storyrpc.io"
+    ],
+    "FLOW": [
+      "https://mainnet.evm.nodes.onflow.org"
+    ],
+    "INK": [
+      "https://rpc-gel.inkonchain.com"
+    ],
+    "KAT": [
+      "https://rpc.katana.network"
+    ],
+    "SONEIUM": [
+      "https://rpc.soneium.org"
+    ],
+    "BLEND": [
+      "https://rpc.fluent.xyz"
+    ],
+    "HEMI": [
+      "https://rpc.hemi.network/rpc"
+    ],
+    "BERA": [
+      "https://rpc.berachain.com"
+    ],
+    "ZKCRO": [
+      "https://mainnet.zkevm.cronos.org"
+    ],
+    "ABS": [
+      "https://api.mainnet.abs.xyz"
+    ],
+    "PLASMA": [
+      "https://rpc.plasma.to"
+    ],
+    "AIL": [
+      "https://mainnet-rpc.ailayer.xyz"
+    ],
+    "TAC": [
+      "https://rpc.tac.build"
+    ],
+    "ZG": [
+      "https://evmrpc.0g.ai"
+    ],
+    "IOTA_EVM": [
+      "https://json-rpc.evm.iotaledger.net"
+    ],
+    "LSK": [
+      "https://rpc.api.lisk.com"
+    ],
+    "CHZ": [
+      "https://rpc.chiliz.com"
+    ],
+    "XTZ_EVM": [
+      "https://node.mainnet.etherlink.com"
+    ],
+    "NIBI_EVM": [
+      "https://evm-rpc.nibiru.fi"
+    ],
+    "BTC_BOT": [
+      "https://rpc.botanixlabs.com"
+    ],
+    "BEAM": [
+      "https://build.onbeam.com/rpc"
+    ],
+    "HELA": [
+      "https://mainnet-rpc.helachain.com"
+    ],
+    "ZRC": [
+      "https://mainnet.zircuit.com"
+    ],
+    "THETA": [
+      "https://eth-rpc-api.thetatoken.org/rpc"
+    ],
+    "APE": [
+      "https://rpc.apechain.com"
+    ],
+    "TT": [
+      "https://mainnet-rpc.thundercore.com"
+    ],
+    "GOAT": [
+      "https://rpc.goat.network"
+    ],
+    "REYA": [
+      "https://rpc.reya.network"
+    ],
+    "BTT": [
+      "https://rpc.bt.io"
+    ],
+    "ZORA": [
+      "https://rpc.zora.energy/"
+    ],
+    "ETH_SWELL": [
+      "https://swell-mainnet.alt.technology"
+    ],
+    "PEAQ": [
+      "https://quicknode1.peaq.xyz"
+    ],
+    "NRG": [
+      "https://nodeapi.energi.network"
+    ],
+    "TAO_EVM": [
+      "https://lite.chain.opentensor.ai"
+    ],
+    "SDN": [
+      "https://shiden.api.onfinality.io/public"
+    ],
+    "SOPH": [
+      "https://rpc.sophon.xyz"
+    ],
+    "ETN": [
+      "https://rpc.electroneum.com"
+    ],
+    "XFI": [
+      "https://rpc.mainnet.ms/"
+    ],
+    "XRPL_EVM": [
+      "https://rpc.xrplevm.org"
+    ],
+    "RWA": [
+      "https://mainnet-rpc.assetchain.org"
+    ],
+    "LENS": [
+      "https://rpc.lens.xyz"
+    ],
+    "XPLA": [
+      "https://dimension-evm-rpc.xpla.dev"
+    ],
+    "ONT": [
+      "https://dappnode1.ont.io:10339"
+    ],
+    "LYX": [
+      "https://rpc.mainnet.lukso.network"
+    ],
+    "SGB": [
+      "https://songbird-api.flare.network/ext/C/rpc"
+    ],
+    "XDC": [
+      "https://erpc.xinfin.network"
+    ],
+    "META": [
+      "https://api.metadium.com/prod"
+    ],
+    "GO": [
+      "https://rpc.gochain.io"
+    ],
+    "RBTC": [
+      "https://public-node.rsk.co"
+    ],
+    "CET": [
+      "https://rpc.coinex.net"
+    ],
+    "RING": [
+      "https://rpc.darwinia.network"
+    ],
+    "KUB": [
+      "https://rpc.bitkubchain.io"
+    ],
+    "MTR": [
+      "https://rpc.meter.io"
+    ],
+    "GT": [
+      "https://evm.gatenode.cc"
+    ],
+    "VLX": [
+      "https://evmexplorer.velas.com/rpc"
+    ],
+    "RLC": [
+      "https://bellecour.iex.ec"
+    ],
+    "HSK": [
+      "https://mainnet.hsk.xyz"
+    ],
+    "SMR": [
+      "https://json-rpc.evm.shimmer.network"
+    ],
+    "AIOZ": [
+      "https://eth-dataseed.aioz.network"
+    ],
+    "SIX": [
+      "https://sixnet-rpc-evm.sixprotocol.net"
+    ],
+    "U2U": [
+      "https://rpc-mainnet.u2u.xyz"
+    ],
+    "UNI_EVM": [
+      "https://unichain.drpc.org",
+      "https://mainnet.unichain.org"
+    ],
+    "DEL": [
+      "https://node.decimalchain.com/web3/"
+    ],
+    "EXP": [
+      "https://node.expanse.tech"
+    ],
+    "ROLLUX": [
+      "https://rpc.rollux.com"
+    ],
+    "VANA": [
+      "https://rpc.vana.org/"
+    ],
+    "ACA_EVM": [
+      "https://eth-rpc-acala.aca-api.network"
+    ],
+    "MEER": [
+      "https://qng.rpc.qitmeer.io"
+    ],
+    "NERO": [
+      "https://rpc.nerochain.io"
+    ],
+    "TNET": [
+      "https://rpc.tenet.org"
+    ],
+    "MAT": [
+      "https://rpc.matchain.io"
+    ],
+    "ELY": [
+      "https://rpc.elysiumchain.us",
+      "https://rpc.elysiumchain.tech"
+    ],
+    "AIA": [
+      "https://aia-dataseed1.aiachain.org",
+      "https://aia-dataseed2.aiachain.org",
+      "https://aia-dataseed3.aiachain.org",
+      "https://aia-dataseed4.aiachain.org"
+    ],
+    "VINU": [
+      "https://vinufoundation-rpc.com",
+      "https://vinuchain-rpc.com"
+    ],
+    "CAM": [
+      "https://api.camino.network/ext/bc/C/rpc"
+    ],
+    "GLQ": [
+      "https://glq-dataseed.graphlinq.io"
+    ],
+    "GLUE": [
+      "https://rpc.glue.net"
+    ],
+    "THAI": [
+      "https://rpc.thaichain.org",
+      "https://rpc.dome.cloud"
+    ],
+    "GL1": [
+      "https://rpc.genesisl1.org"
+    ],
+    "RBN": [
+      "https://governors.mainnet.redbelly.network"
+    ],
+    "ABEY": [
+      "https://rpc.abeychain.com"
+    ],
+    "IDC": [
+      "https://idchain.one/rpc/"
+    ],
+    "CO2": [
+      "https://rpc.co2ledger.xyz"
+    ],
+    "LYC": [
+      "https://rpc.lycanchain.com/"
+    ],
+    "DSC": [
+      "https://rpc01.dscscan.io"
+    ],
+    "MAAL": [
+      "https://node1-mainnet.maalscan.io/",
+      "https://node2-mainnet.maalscan.io/",
+      "https://node3-mainnet.maalscan.io/"
+    ],
+    "EVOZ": [
+      "https://rpc.evozscan.com"
+    ],
+    "RBA": [
+      "https://dataseed.roburna.com"
+    ],
+    "GZN": [
+      "https://gzn.linksme.info"
+    ],
+    "EIOB": [
+      "https://rpc.eiob.xyz"
+    ],
+    "AME": [
+      "https://node1.amechain.io/"
+    ],
+    "EVA": [
+      "https://evascan.io/api/eth-rpc/"
+    ],
+    "XSC": [
+      "https://datarpc1.xsc.pub",
+      "https://datarpc2.xsc.pub",
+      "https://datarpc3.xsc.pub"
+    ],
+    "WATER": [
+      "https://rpc.waterfall.network/"
+    ],
+    "RAMA": [
+      "https://blockchain.ramestta.com",
+      "https://blockchain2.ramestta.com"
+    ],
+    "IOST": [
+      "https://iost-mainnet.alt.technology"
+    ],
+    "DILL": [
+      "https://rpc-alps.dill.xyz"
+    ],
+    "JUMBO": [
+      "https://testnode.jumbochain.org"
+    ],
+    "SEI_EVM": [
+      "https://evm-rpc.sei-apis.com",
+      "https://sei-public.nodies.app",
+      "https://sei-evm-rpc.stakeme.pro"
+    ],
+    "MEZO": [
+      "https://mezo.drpc.org",
+      "https://mezo-mainnet.boar.network",
+      "https://mainnet.mezo.public.validationcloud.io"
+    ],
+    "STABLE": [
+      "https://stable-mainnet.rpc.sentio.xyz",
+      "https://rpc.stable.xyz"
+    ],
+    "ENIAC": [
+      "https://rpc.eniac.network",
+      "https://rpc2.eniac.network",
+      "https://rpc1.eniac.network",
+      "https://enirpc.com",
+      "https://jp.eniacrpc.net",
+      "https://jp.enirpc.com"
+    ],
+    "CANTO": [
+      "https://canto.gravitychain.io"
+    ],
+    "TLOS": [
+      "https://telos.drpc.org"
+    ],
+    "DYM": [
+      "https://dymension.api.onfinality.io/public"
+    ],
+    "SAGA": [
+      "https://sagaevm.jsonrpc.sagarpc.io"
+    ],
+    "ESC": [
+      "https://api.elastos.io/esc"
+    ],
+    "OMAX": [
+      "https://mainapi.omaxray.com"
+    ],
+    "RON": [
+      "https://ronin-mainnet.gateway.tatum.io"
+    ],
+    "BLAST": [
+      "https://blast.drpc.org"
+    ],
+    "SCROLL": [
+      "https://scroll.drpc.org"
+    ],
+    "LINEA": [
+      "https://linea.drpc.org"
+    ],
+    "MANTLE": [
+      "https://rpc.mantle.xyz"
+    ],
+    "TAIKO": [
+      "https://rpc.ankr.com/taiko"
+    ],
+    "MERLIN": [
+      "https://merlin.drpc.org"
+    ],
+    "MANTA": [
+      "https://manta-pacific.drpc.org"
+    ],
+    "XLAYER": [
+      "https://xlayerrpc.okx.com"
+    ],
+    "IMX": [
+      "https://rpc.immutable.com"
+    ],
+    "WEMIX": [
+      "https://wemix.drpc.org"
+    ],
+    "KAIA": [
+      "https://kaia.drpc.org",
+      "https://klaytn.api.onfinality.io/public",
+      "https://public-en.node.kaia.io",
+      "https://klaytn.drpc.org",
+      "https://kaia.blockpi.network/v1/rpc/public"
+    ],
+    "CORE": [
+      "https://rpc.ankr.com/core"
+    ],
+    "CFX": [
+      "https://evm.confluxrpc.com"
+    ],
+    "BITLAYER": [
+      "https://rpc.bitlayer.org"
+    ],
+    "MORPH": [
+      "https://morph.drpc.org"
+    ],
+    "GRAVITY": [
+      "https://rpc.ankr.com/gravity"
+    ],
+    "ZKLINK": [
+      "https://rpc.zklink.io"
+    ],
+    "MONAD": [
+      "https://monad-mainnet.drpc.org"
+    ],
+    "VTRU": [
+      "https://rpc.vitruveo.xyz"
+    ],
+    "SCAI": [
+      "https://mainnet-rpc.scai.network"
+    ],
+    "STN": []
+  },
+  "prices_binance": {
+    "FETCH": "FETUSDT",
+    "INJ": "INJUSDT",
+    "ALGO": "ALGOUSDT",
+    "EGLD": "EGLDUSDT",
+    "XLM": "XLMUSDT",
+    "SEI": "SEIUSDT",
+    "NEAR": "NEARUSDT",
+    "IOTX": "IOTXUSDT",
+    "HMY": "ONEUSDT",
+    "FIL": "FILUSDT",
+    "LUNC": "LUNCUSDT",
+    "VET": "VETUSDT",
+    "NTRN": "NTRNUSDT",
+    "DYDX": "DYDXUSDT",
+    "WAN": "WANUSDT",
+    "VIC": "VICUSDT",
+    "OSMO": "OSMOUSDT",
+    "KAVA": "KAVAUSDT",
+    "LUNA": "LUNAUSDT",
+    "ASTR": "ASTRUSDT",
+    "AXL": "AXLUSDT",
+    "SYS": "SYSUSDT",
+    "HBAR": "HBARUSDT",
+    "SCRT": "SCRTUSDT",
+    "ECLIPSE": "ETHUSDT",
+    "FRAX": "ETHUSDT",
+    "SOON": "ETHUSDT",
+    "SONIC_SVM": "SOLUSDT",
+    "ICX": "ICXUSDT",
+    "NEO": "NEOUSDT",
+    "CKB": "CKBUSDT",
+    "ADA": "ADAUSDT"
+  },
+  "prices_coingecko": {
+    "bitcoin": "BTC",
+    "litecoin": "LTC",
+    "dogecoin": "DOGE",
+    "dash": "DASH",
+    "bitcoin-cash": "BCH",
+    "zcash": "ZEC",
+    "tron": "TRX",
+    "sui": "SUI",
+    "solana": "SOL",
+    "ethereum": "ECLIPSE",
+    "cosmos": "ATOM",
+    "ripple": "XRP",
+    "polkadot": "DOT",
+    "kusama": "KSM",
+    "vechain": "VET",
+    "aptos": "APT",
+    "terra-luna": "LUNC",
+    "neutron-3": "NTRN",
+    "dydx-chain": "DYDX",
+    "band-protocol": "BAND",
+    "fetch-ai": "FETCH",
+    "persistence": "XPRT",
+    "sei-network": "SEI",
+    "injective-protocol": "INJ",
+    "stellar": "XLM",
+    "algorand": "ALGO",
+    "near": "NEAR",
+    "elrond-erd-2": "EGLD",
+    "hedera-hashgraph": "HBAR",
+    "filecoin": "FIL",
+    "harmony": "HMY",
+    "iotex": "IOTX",
+    "zetachain": "ZETA",
+    "sonic-3": "SONIC",
+    "energy-web-token": "EWT",
+    "fuse-network-token": "FUSE",
+    "wanchain": "WAN",
+    "canto": "CANTO",
+    "syscoin": "SYS",
+    "tomochain": "VIC",
+    "telos": "TLOS",
+    "astar": "ASTR",
+    "ronin": "RON",
+    "osmosis": "OSMO",
+    "kava": "KAVA",
+    "kujira": "KUJI",
+    "axelar": "AXL",
+    "nibiru": "NIBI",
+    "terra-luna-2": "LUNA",
+    "acala": "ACA",
+    "centrifuge": "CFG",
+    "archway": "ARCH",
+    "evmos": "EVMOS",
+    "secret": "SCRT",
+    "juno-network": "JUNO",
+    "stride": "STRD",
+    "comdex": "CMDX",
+    "crescent-network": "CRE",
+    "sifchain": "ROWAN",
+    "bitcanna": "BCNA",
+    "regen": "REGEN",
+    "iris-network": "IRIS",
+    "umee": "UMEE",
+    "bone-shibaswap": "BONE",
+    "neon": "NEON",
+    "jewel": "DFK",
+    "degen-base": "DEGEN",
+    "cyber": "CYBER",
+    "stargaze": "STARS",
+    "akash-network": "AKT",
+    "celestia": "TIA",
+    "icon": "ICX",
+    "neo": "NEO",
+    "nano": "XNO",
+    "nervos-network": "CKB",
+    "cardano": "ADA",
+    "sentinel-group": "DVPN",
+    "chihuahua-token": "HUAHUA",
+    "cheqd-network": "CHEQD",
+    "assetmantle": "MNTL"
+  }
+}
